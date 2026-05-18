@@ -1,0 +1,43 @@
+# XPARQ OS - Multi-Architecture Operating System
+# Phase 1 & 2: OS Foundations and Development Environment Setup
+# Based on Zircon Kernel with ARM and x86-64 support
+
+[workspace]
+members = [
+    "kernel",
+    "hal",
+    "interfaces/fidl",
+    "bootloader/arm64",
+    "bootloader/x86_64",
+]
+exclude = [
+    "kernel-simple",
+]
+resolver = "2"
+
+[workspace.dependencies]
+# Core kernel dependencies
+xparq-kernel = { path = "kernel" }
+xparq-hal = { path = "hal" }
+xparq-fidl = { path = "interfaces/fidl" }
+
+# no_std compatible dependencies
+spin = "0.9"
+volatile = "0.5"
+bitflags = "2.4"
+static_assertions = "1.1"
+arrayvec = { version = "0.7", default-features = false }
+
+# Architecture-specific dependencies
+aarch64-cpu = "9.4"
+x86_64 = "0.14"
+uefi = "0.26"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
+opt-level = "z"

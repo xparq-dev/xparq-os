@@ -1,0 +1,29 @@
+# XPARQ OS FIDL Interfaces - Phase 2: Dev Environment Setup
+# FIDL-like interface definitions as Rust traits for core services
+# Provides IPC protocol definitions for system services
+
+[package]
+name = "xparq-fidl"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Core dependencies
+spin = { workspace = true }
+bitflags = { workspace = true }
+static_assertions = { workspace = true }
+arrayvec = { workspace = true }
+
+# Architecture dependencies (removed to avoid cyclic dependency)
+# xparq-kernel dependency removed - FIDL should be independent
+
+[features]
+default = []
+kernel = []
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true

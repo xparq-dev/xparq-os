@@ -1,0 +1,38 @@
+# XPARQ OS - Phase 01: OS & Kernel Foundations
+# x86-64 Bootloader - Phase 2: Dev Environment Setup
+# UEFI-based bootloader for x86-64 architecture
+
+[package]
+name = "xparq-bootloader-x86_64"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "xparq-bootloader-x86_64"
+path = "src/mbr.rs"
+
+[dependencies]
+# no_std core dependencies
+spin = "0.9"
+volatile = "0.5"
+bitflags = "2.4"
+static_assertions = "1.1"
+arrayvec = { version = "0.7", default-features = false }
+
+# x86-64-specific dependencies
+x86_64 = "0.14"
+
+# UEFI dependencies (optional)
+uefi = { version = "0.26", optional = true }
+uefi-services = { version = "0.23", optional = true }
+
+[features]
+default = []
+uefi = ["dep:uefi", "dep:uefi-services"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true

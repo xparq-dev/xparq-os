@@ -1,0 +1,252 @@
+# XPARQ OS - Phase 01: OS & Kernel Foundations
+# Cargo Configuration for Cross-Compilation
+# Phase 2: Dev Environment Setup
+
+[build]
+# Default target for the workspace
+target = "x86_64-unknown-none"
+
+[target.aarch64-unknown-none]
+# ARM64 bare-metal target configuration
+runner = "qemu-system-aarch64 -machine virt -cpu cortex-a72 -m 512M -nographic -semihosting -semihosting-config enable=on,target=native -kernel"
+linker = "rust-lld"
+
+[target.x86_64-unknown-none]
+# x86-64 bare-metal target configuration
+runner = "qemu-system-x86_64 -machine q35 -cpu qemu64 -m 512M -nographic -kernel"
+linker = "rust-lld"
+
+# Environment variables for cross-compilation
+[env]
+# ARM64 cross-compilation environment
+CC_AARCH64 = "aarch64-linux-gnu-gcc"
+AR_AARCH64 = "aarch64-linux-gnu-ar"
+OBJCOPY_AARCH64 = "aarch64-linux-gnu-objcopy"
+
+# x86-64 cross-compilation environment
+CC_X86_64 = "x86_64-linux-gnu-gcc"
+AR_X86_64 = "x86_64-linux-gnu-ar"
+OBJCOPY_X86_64 = "x86_64-linux-gnu-objcopy"
+
+# Common cross-compilation flags
+CFLAGS = "-O2 -g -Wall -Wextra"
+LDFLAGS = "-nostdlib"
+
+# Rust compiler configuration
+[unstable]
+# Enable unstable features for no_std development
+build-std = ["core", "compiler_builtins", "alloc"]
+build-std-features = ["compiler-builtins-mem"]
+
+# Rustflags configuration moved to individual Cargo.toml files
+
+# Profile configurations
+[profile.dev]
+# Development profile
+opt-level = 0
+debug = true
+lto = false
+panic = "abort"
+overflow-checks = true
+
+[profile.release]
+# Release profile
+opt-level = 3
+debug = false
+lto = true
+panic = "abort"
+overflow-checks = false
+codegen-units = 1
+
+# Custom profiles for different build types
+[profile.release-small]
+# Small release profile for embedded
+inherits = "release"
+opt-level = "s"
+lto = true
+panic = "abort"
+codegen-units = 1
+
+[profile.release-fast]
+# Fast release profile for performance
+inherits = "release"
+opt-level = 3
+lto = false
+panic = "abort"
+codegen-units = 4
+
+# Package-specific configurations
+[package.xparq-kernel]
+# Kernel package configuration
+edition = "2021"
+
+[package.xparq-bootloader-arm64]
+# ARM64 bootloader package configuration
+edition = "2021"
+
+[package.xparq-bootloader-x86_64]
+# x86-64 bootloader package configuration
+edition = "2021"
+
+[package.xparq-hal]
+# HAL package configuration
+edition = "2021"
+
+[package.xparq-fidl]
+# FIDL package configuration
+edition = "2021"
+
+# Registry configuration
+[registry]
+# Use crates.io for dependencies
+default = "crates-io"
+
+# Source configuration
+[source.crates-io]
+# Standard crates.io registry
+registry = "https://github.com/rust-lang/crates.io-index"
+
+# Patch configurations for local development
+[patch.crates-io]
+# Uncomment to use local versions of dependencies
+# volatile = { path = "../volatile" }
+# tock-registers = { path = "../tock-registers" }
+
+# Net configuration (for future network support)
+[net]
+# Retry failed downloads
+retry = 3
+# Use git for source downloads
+git-fetch-with-cli = true
+
+# HTTP configuration
+[http]
+# Check certificates when downloading
+check-revoke = false
+
+# Term configuration
+[term]
+# Enable colors in terminal output
+color = "auto"
+# Enable verbose output
+verbose = false
+
+# Alias configurations
+[alias]
+# Build aliases
+b = "build"
+br = "build --release"
+bb = "build --profile release-small"
+bf = "build --profile release-fast"
+
+# Test aliases
+t = "test"
+tr = "test --release"
+
+# Run aliases
+r = "run"
+rr = "run --release"
+
+# Clean aliases
+c = "clean"
+ca = "clean --release"
+
+# Check aliases
+k = "check"
+kr = "check --release"
+
+# Custom aliases for XPARQ OS
+build-arm64 = "build --target aarch64-unknown-none"
+build-x86_64 = "build --target x86_64-unknown-none"
+build-all = "build --target aarch64-unknown-none --target x86_64-unknown-none"
+
+test-arm64 = "test --target aarch64-unknown-none"
+test-x86_64 = "test --target x86_64-unknown-none"
+test-all = "test --target aarch64-unknown-none --target x86_64-unknown-none"
+
+run-arm64 = "run --target aarch64-unknown-none"
+run-x86_64 = "run --target x86_64-unknown-none"
+
+# Toolchain configuration
+[toolchain]
+# Use nightly toolchain for no_std development
+channel = "nightly"
+# Use default components
+components = ["rust-src", "rustfmt", "clippy"]
+# Use default targets
+targets = ["aarch64-unknown-none", "x86_64-unknown-none"]
+
+# Target-specific toolchains are already configured above
+
+# Future configuration for when we have more targets
+# [target.riscv64gc-unknown-none-elf]
+# # RISC-V 64-bit bare-metal target configuration
+# runner = "qemu-system-riscv64 -machine virt -cpu rv64 -m 512M -nographic -kernel"
+
+# [target.riscv64gc-unknown-none-elf.rustflags]
+# # RISC-V-specific Rust flags
+# [
+#     "-C", "link-arg=-Tlinker.ld",
+#     "-C", "link-arg=--nmagic",
+#     "-C", "link-arg=-Ttext=0x80000000",
+#     "-C", "relocation-model=static",
+#     "-C", "overflow-checks=off",
+#     "-C", "panic=abort",
+# ]
+
+# Environment variables configuration (commented out due to config issues)
+# [env.development]
+# RUST_LOG = "debug"
+# RUST_BACKTRACE = "1"
+#
+# [env.production]
+# RUST_LOG = "info"
+# RUST_BACKTRACE = "0"
+#
+# [env.testing]
+# RUST_LOG = "trace"
+# RUST_BACKTRACE = "full"
+
+# Documentation configuration
+[doc]
+# Enable browser for documentation
+browser = "auto"
+
+# Clippy configuration
+[clippy]
+# Enable all clippy lints
+warn-all = true
+# Allow certain lints for no_std development
+allow = [
+    "dead_code",        # Allow dead code in development
+    "unused_imports",   # Allow unused imports in development
+    "unused_variables", # Allow unused variables in development
+]
+
+# Rustfmt configuration
+[fmt]
+# Use 4-space indentation
+hard_tabs = false
+tab_spaces = 4
+# Use Unix line endings
+newline_style = "Unix"
+# Format all items
+use_small_heuristics = "Default"
+# Use field initialization shorthand
+use_field_init_shorthand = true
+# Use try blocks
+use_try_shorthand = true
+
+# Configuration for future features
+# [target.wasm32-unknown-unknown]
+# # WebAssembly target configuration
+# runner = "wasm-bindgen-test-runner"
+
+# [target.wasm32-unknown-unknown.rustflags]
+# # WebAssembly-specific Rust flags
+# [
+#     "-C", "target-feature=+atomics,+bulk-memory",
+#     "-C", "link-arg=--export-table",
+#     "-C", "link-arg=--export=malloc",
+#     "-C", "link-arg=--export=free",
+# ]

@@ -1,0 +1,33 @@
+# XPARQ OS ARM64 Architecture Support - Phase 2: Dev Environment Setup
+# ARM64-specific bootloader, interrupt handling, and hardware abstraction
+# Supports ARM Exception Levels (EL0-EL3) and TrustZone security
+
+[package]
+name = "xparq-arm64"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+# ARM64 specific dependencies
+aarch64-cpu = { workspace = true }
+spin = { workspace = true }
+volatile = { workspace = true }
+bitflags = { workspace = true }
+static_assertions = { workspace = true }
+
+# Core kernel
+xparq-kernel = { workspace = true, optional = true }
+
+[features]
+default = []
+kernel = ["xparq-kernel"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true

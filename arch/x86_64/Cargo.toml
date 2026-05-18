@@ -1,0 +1,35 @@
+# XPARQ OS x86-64 Architecture Support - Phase 2: Dev Environment Setup
+# x86-64-specific bootloader, UEFI support, and hardware abstraction
+# Supports PC platforms with UEFI boot, ACPI, and PCIe
+
+[package]
+name = "xparq-x86_64"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+# x86-64 specific dependencies
+x86_64 = { workspace = true }
+uefi = { workspace = true }
+spin = { workspace = true }
+volatile = { workspace = true }
+bitflags = { workspace = true }
+static_assertions = { workspace = true }
+
+# Core kernel
+xparq-kernel = { workspace = true, optional = true }
+
+[features]
+default = []
+kernel = ["xparq-kernel"]
+uefi = ["uefi/std"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true

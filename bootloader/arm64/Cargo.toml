@@ -1,0 +1,39 @@
+# XPARQ OS - Phase 01: OS & Kernel Foundations
+# ARM64 Bootloader - Phase 2: Dev Environment Setup
+# UEFI-based bootloader for ARM64 architecture
+
+[package]
+name = "xparq-bootloader-arm64"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+path = "src/main_simple.rs"
+
+[dependencies]
+# no_std core dependencies
+spin = "0.9"
+volatile = "0.5"
+bitflags = "2.4"
+static_assertions = "1.1"
+arrayvec = { version = "0.7", default-features = false }
+
+# ARM64-specific dependencies
+aarch64-cpu = "9.4"
+tock-registers = "0.8"
+
+# UEFI dependencies (optional)
+uefi = { version = "0.26", optional = true }
+uefi-services = { version = "0.23", optional = true }
+
+[features]
+default = ["uefi"]
+uefi = ["dep:uefi", "dep:uefi-services"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true

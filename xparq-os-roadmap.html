@@ -1,0 +1,1304 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XPARQ OS — Development Roadmap v2 (ARM + x86)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+Thai:wght@300;400;600;700&family=Orbitron:wght@400;700;900&display=swap');
+
+  :root {
+    --bg: #050709;
+    --surface: #0b0f16;
+    --surface2: #111827;
+    --accent: #00e5ff;
+    --accent2: #8b5cf6;
+    --accent3: #f97316;
+    --accent4: #10b981;
+    --text: #e2e8f0;
+    --text-dim: #64748b;
+    --border: rgba(0,229,255,0.12);
+    --glow: 0 0 30px rgba(0,229,255,0.2);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Noto Sans Thai', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.025) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Radial glow bg */
+  body::after {
+    content: '';
+    position: fixed;
+    top: -20%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 800px;
+    height: 600px;
+    background: radial-gradient(ellipse, rgba(139,92,246,0.06) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 56px 24px 80px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    text-align: center;
+    margin-bottom: 72px;
+  }
+
+  .header-eyebrow {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 6px;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 20px;
+    opacity: 0;
+    animation: fadeUp 0.7s ease forwards 0.1s;
+  }
+
+  .logo-mark {
+    font-family: 'Orbitron', monospace;
+    font-size: clamp(42px, 8vw, 80px);
+    font-weight: 900;
+    letter-spacing: -2px;
+    background: linear-gradient(135deg, #00e5ff 0%, #8b5cf6 50%, #f97316 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    opacity: 0;
+    animation: fadeUp 0.7s ease forwards 0.2s;
+    line-height: 1;
+  }
+
+  .logo-sub {
+    font-family: 'Orbitron', monospace;
+    font-size: clamp(12px, 2vw, 18px);
+    letter-spacing: 8px;
+    color: var(--text-dim);
+    margin-top: 8px;
+    opacity: 0;
+    animation: fadeUp 0.7s ease forwards 0.3s;
+  }
+
+  .header-divider {
+    width: 80px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    margin: 28px auto;
+    opacity: 0;
+    animation: fadeUp 0.7s ease forwards 0.4s;
+  }
+
+  .header-desc {
+    color: var(--text-dim);
+    font-size: 15px;
+    line-height: 1.8;
+    max-width: 560px;
+    margin: 0 auto;
+    opacity: 0;
+    animation: fadeUp 0.7s ease forwards 0.5s;
+  }
+
+  .header-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(139,92,246,0.12);
+    border: 1px solid rgba(139,92,246,0.35);
+    border-radius: 100px;
+    padding: 8px 22px;
+    margin-top: 24px;
+    font-size: 11px;
+    color: #a78bfa;
+    font-family: 'Space Mono', monospace;
+    letter-spacing: 1px;
+    opacity: 0;
+    animation: fadeUp 0.7s ease forwards 0.6s;
+  }
+
+  .dot-pulse {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #a78bfa;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  /* ── STATS ── */
+  .stats-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 56px;
+    opacity: 0;
+    animation: fadeUp 0.7s ease forwards 0.7s;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px 16px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0.5;
+  }
+
+  .stat-number {
+    font-family: 'Orbitron', monospace;
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  .stat-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 6px;
+    line-height: 1.4;
+  }
+
+  /* ── PHASE CARDS ── */
+  .phases { display: flex; flex-direction: column; gap: 20px; }
+
+  .phase {
+    opacity: 0;
+    animation: fadeUp 0.6s ease forwards;
+  }
+
+  .phase:nth-child(1) { animation-delay: 0.8s; }
+  .phase:nth-child(2) { animation-delay: 0.95s; }
+  .phase:nth-child(3) { animation-delay: 1.1s; }
+  .phase:nth-child(4) { animation-delay: 1.2s; }
+  .phase:nth-child(5) { animation-delay: 1.3s; }
+  .phase:nth-child(6) { animation-delay: 1.4s; }
+  .phase:nth-child(7) { animation-delay: 1.5s; }
+
+  .phase-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    overflow: hidden;
+    transition: border-color 0.3s, box-shadow 0.3s, transform 0.3s;
+    cursor: pointer;
+  }
+
+  .phase-card:hover {
+    border-color: rgba(0,229,255,0.3);
+    box-shadow: 0 0 40px rgba(0,229,255,0.08);
+    transform: translateY(-2px);
+  }
+
+  .phase-card.open {
+    border-color: rgba(0,229,255,0.25);
+  }
+
+  .phase-header {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 22px 26px;
+  }
+
+  .phase-num {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Orbitron', monospace;
+    font-weight: 700;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+
+  .c1 .phase-num { background: rgba(0,229,255,0.1); color: var(--accent); border: 1px solid rgba(0,229,255,0.2); }
+  .c2 .phase-num { background: rgba(139,92,246,0.1); color: var(--accent2); border: 1px solid rgba(139,92,246,0.2); }
+  .c3 .phase-num { background: rgba(249,115,22,0.1); color: var(--accent3); border: 1px solid rgba(249,115,22,0.2); }
+  .c4 .phase-num { background: rgba(16,185,129,0.1); color: var(--accent4); border: 1px solid rgba(16,185,129,0.2); }
+
+  .phase-meta { flex: 1; min-width: 0; }
+
+  .phase-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.3;
+  }
+
+  .phase-sub {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 4px;
+    font-family: 'Space Mono', monospace;
+  }
+
+  .phase-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+
+  .duration-pill {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    padding: 5px 14px;
+    border-radius: 100px;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .chevron {
+    color: var(--text-dim);
+    font-size: 10px;
+    transition: transform 0.3s;
+    font-family: 'Space Mono', monospace;
+  }
+
+  .phase-card.open .chevron { transform: rotate(180deg); }
+
+  /* ── BODY ── */
+  .phase-body {
+    display: none;
+    padding: 0 26px 26px;
+    border-top: 1px solid var(--border);
+  }
+
+  .phase-body.open { display: block; }
+
+  .sec-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 4px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin: 22px 0 10px;
+  }
+
+  /* Tasks */
+  .tasks { display: flex; flex-direction: column; gap: 8px; }
+
+  .task {
+    display: flex;
+    gap: 14px;
+    padding: 14px 16px;
+    background: var(--surface2);
+    border-radius: 12px;
+    border: 1px solid transparent;
+    transition: border-color 0.2s;
+    align-items: flex-start;
+  }
+
+  .task:hover { border-color: var(--border); }
+  .task-ico { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+  .task-title { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4; }
+  .task-desc { font-size: 12px; color: var(--text-dim); margin-top: 4px; line-height: 1.6; }
+
+  /* ── MASTER PROMPTS ── */
+  .prompt-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 22px 0 10px;
+  }
+
+  .prompt-header .sec-label { margin: 0; }
+
+  .master-badge {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    padding: 3px 10px;
+    border-radius: 100px;
+    background: rgba(249,115,22,0.15);
+    border: 1px solid rgba(249,115,22,0.3);
+    color: var(--accent3);
+    letter-spacing: 2px;
+  }
+
+  .prompts { display: flex; flex-direction: column; gap: 10px; }
+
+  .prompt-card {
+    background: rgba(139,92,246,0.06);
+    border: 1px solid rgba(139,92,246,0.18);
+    border-radius: 12px;
+    padding: 16px 18px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, transform 0.2s;
+    position: relative;
+  }
+
+  .prompt-card:hover {
+    background: rgba(139,92,246,0.12);
+    border-color: rgba(139,92,246,0.35);
+    transform: translateX(4px);
+  }
+
+  .prompt-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 3px;
+    color: var(--accent2);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .prompt-label::before { content: '◆'; font-size: 7px; }
+
+  .prompt-text {
+    font-size: 13px;
+    color: #c4b5fd;
+    line-height: 1.7;
+  }
+
+  .prompt-context {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(139,92,246,0.1);
+    line-height: 1.5;
+    font-family: 'Space Mono', monospace;
+  }
+
+  .copy-btn {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: rgba(139,92,246,0.2);
+    border: 1px solid rgba(139,92,246,0.3);
+    color: #a78bfa;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s;
+    letter-spacing: 1px;
+  }
+
+  .prompt-card:hover .copy-btn { opacity: 1; }
+
+  /* Tools */
+  .tools { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  .tool {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .tool-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+
+  /* Milestone */
+  .milestone {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 18px;
+    background: rgba(0,229,255,0.04);
+    border: 1px solid rgba(0,229,255,0.15);
+    border-radius: 12px;
+    margin-top: 10px;
+  }
+
+  .milestone-icon { font-size: 22px; flex-shrink: 0; }
+  .milestone-title { font-size: 13px; font-weight: 700; color: var(--accent); line-height: 1.4; }
+  .milestone-sub { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+
+  /* ── FOOTER NOTE ── */
+  .footer-note {
+    margin-top: 56px;
+    padding: 32px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    text-align: center;
+    opacity: 0;
+    animation: fadeUp 0.7s ease forwards 1.8s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .footer-note::before {
+    content: 'XPARQ OS';
+    position: absolute;
+    font-family: 'Orbitron', monospace;
+    font-size: 80px;
+    font-weight: 900;
+    color: rgba(0,229,255,0.03);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  .footer-note p {
+    color: var(--text-dim);
+    font-size: 13px;
+    line-height: 1.9;
+    position: relative;
+  }
+
+  .footer-note strong { color: var(--accent); }
+  .footer-note em { color: #a78bfa; font-style: normal; }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--accent);
+    color: var(--bg);
+    padding: 12px 28px;
+    border-radius: 100px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
+    z-index: 999;
+    pointer-events: none;
+    letter-spacing: 1px;
+  }
+
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+  }
+
+  @media (max-width: 640px) {
+    .stats-bar { grid-template-columns: repeat(2, 1fr); }
+    .phase-header { padding: 18px; gap: 12px; }
+    .phase-body { padding: 0 18px 20px; }
+    .phase-title { font-size: 12px; }
+    .duration-pill { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-eyebrow">// Official Development Roadmap</div>
+    <div class="logo-mark">XPARQ OS</div>
+    <div class="logo-sub">OPERATING SYSTEM</div>
+    <div class="header-divider"></div>
+    <p class="header-desc">
+      OS ที่สร้างบน Zircon Kernel<br>
+      ลื่นเหมือน Apple · ปลอดภัยกว่า Android · Sync ทุก Ecosystem<br>
+      รองรับ <strong style="color:var(--accent)">ARM</strong> และ <strong style="color:var(--accent3)">x86-64</strong> · พัฒนาด้วย AI 100%
+    </p>
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:20px;opacity:0;animation:fadeUp 0.7s ease forwards 0.65s">
+      <div class="header-badge" style="margin-top:0">
+        <div class="dot-pulse"></div>
+        ARM · Mobile / Embedded
+      </div>
+      <div class="header-badge" style="margin-top:0;background:rgba(249,115,22,0.12);border-color:rgba(249,115,22,0.35)">
+        <div class="dot-pulse" style="background:#f97316"></div>
+        <span style="color:#fb923c">x86-64 · PC / Server</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- STATS -->
+  <div class="stats-bar">
+    <div class="stat-card">
+      <div class="stat-number">7</div>
+      <div class="stat-label">Phase หลัก</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">Zircon</div>
+      <div class="stat-label">Core Kernel</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">6–12</div>
+      <div class="stat-label">ปีโดยประมาณ</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number" style="font-size:16px;color:var(--accent3)">ARM+x86</div>
+      <div class="stat-label">Multi-Architecture</div>
+    </div>
+  </div>
+
+  <!-- PHASES -->
+  <div class="phases">
+
+    <!-- ── PHASE 1 ── -->
+    <div class="phase c1">
+      <div class="phase-card" onclick="toggle(this)">
+        <div class="phase-header">
+          <div class="phase-num">01</div>
+          <div class="phase-meta">
+            <div class="phase-title">OS & Kernel Foundations</div>
+            <div class="phase-sub">// รู้จักโครงสร้าง XPARQ OS — รองรับทั้ง ARM และ x86-64</div>
+          </div>
+          <div class="phase-right">
+            <div class="duration-pill">6–12 months</div>
+            <div class="chevron">▼</div>
+          </div>
+        </div>
+        <div class="phase-body open">
+          <div class="sec-label">สิ่งที่ต้องเรียน</div>
+          <div class="tasks">
+            <div class="task">
+              <div class="task-ico">⚙️</div>
+              <div>
+                <div class="task-title">C และ Rust ระดับ System Programming</div>
+                <div class="task-desc">Pointer arithmetic, manual memory management, unsafe Rust, lifetime — ภาษาที่ Kernel ใช้จริง</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">🧠</div>
+              <div>
+                <div class="task-title">Computer Architecture — ARM และ x86-64</div>
+                <div class="task-desc">ARM: Register file, Exception Level (EL0–EL3), TrustZone, SMMU | x86-64: Ring 0–3, MSR, IOMMU, UEFI/ACPI boot — เรียนทั้งคู่เพราะ XPARQ OS รองรับสองสถาปัตยกรรม</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">🔧</div>
+              <div>
+                <div class="task-title">OS Internals: Process, Memory, IPC</div>
+                <div class="task-desc">Syscall lifecycle, virtual memory paging, context switch, inter-process communication patterns</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">📦</div>
+              <div>
+                <div class="task-title">Zircon Mental Model</div>
+                <div class="task-desc">Object-capability model, handle system, FIDL protocol — สถาปัตยกรรมหัวใจของ XPARQ OS</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">🖥️</div>
+              <div>
+                <div class="task-title">x86-64 Platform Specifics</div>
+                <div class="task-desc">UEFI Secure Boot, ACPI power management, PCIe device enumeration, x86 page table format (PML4) — ความรู้เฉพาะสำหรับ PC platform</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="prompt-header">
+            <div class="sec-label">MASTER PROMPTS</div>
+            <div class="master-badge">★ MASTER LEVEL</div>
+          </div>
+          <div class="prompts">
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">Architecture Deep Dive</div>
+              <div class="prompt-text">
+                ฉันกำลังพัฒนา XPARQ OS บน Zircon Kernel ซึ่งใช้ object-capability security model อธิบายให้ฉันเข้าใจลึกว่า capability-based access control ต่างจาก Unix permission model (DAC) อย่างไรในระดับ kernel implementation พร้อม trade-off ด้าน performance และ security surface area
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: ต้องการเข้าใจว่าทำไม Zircon ถึงเลือก capability model</div>
+            </div>
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">ARM vs x86 Architecture Comparison</div>
+              <div class="prompt-text">
+                XPARQ OS ต้องรองรับทั้ง ARM และ x86-64 เปรียบเทียบ privilege model ระหว่าง ARM Exception Level (EL0–EL3) กับ x86 Protection Ring (Ring 0–3) อย่างละเอียด: วิธีที่ Zircon Kernel จัดการ architecture-specific code path, ABI differences, และ porting strategy ที่ทำให้ XPARQ OS รองรับสองสถาปัตยกรรมโดยใช้ codebase เดียวกัน
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: วางแผน multi-arch strategy ของ XPARQ OS</div>
+            </div>
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">Memory Model Internals</div>
+              <div class="prompt-text">
+                ใน Zircon Kernel, Virtual Memory Object (VMO) และ Virtual Memory Address Region (VMAR) ทำงานร่วมกันอย่างไร เปรียบเทียบกับ Linux mmap() และ anonymous mapping อธิบาย memory lifecycle ตั้งแต่ untyped memory → VMO → mapped region พร้อม implication ต่อ XPARQ OS memory architecture บนทั้ง ARM (LPAE) และ x86-64 (PML4 page table)
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: ออกแบบ memory management layer ของ XPARQ OS</div>
+            </div>
+          </div>
+
+          <div class="sec-label">เครื่องมือ</div>
+          <div class="tools">
+            <div class="tool"><div class="tool-dot" style="background:var(--accent)"></div> Claude AI</div>
+            <div class="tool"><div class="tool-dot" style="background:var(--accent2)"></div> VS Code + rust-analyzer</div>
+            <div class="tool"><div class="tool-dot" style="background:var(--accent3)"></div> QEMU ARM64 + QEMU x86-64</div>
+            <div class="tool"><div class="tool-dot" style="background:var(--accent4)"></div> GDB + LLDB</div>
+            <div class="tool"><div class="tool-dot" style="background:var(--accent)"></div> Ubuntu 24 LTS</div>
+          </div>
+
+          <div class="milestone">
+            <div class="milestone-icon">🎯</div>
+            <div>
+              <div class="milestone-title">Milestone: อธิบาย Zircon object lifecycle ได้ตั้งแต่ handle creation ถึง destruction</div>
+              <div class="milestone-sub">เข้าใจ privilege model ทั้ง ARM (EL0–EL3) และ x86-64 (Ring 0–3) และเขียน C program ที่ใช้ manual memory management โดยไม่มี leak</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── PHASE 2 ── -->
+    <div class="phase c2">
+      <div class="phase-card" onclick="toggle(this)">
+        <div class="phase-header">
+          <div class="phase-num">02</div>
+          <div class="phase-meta">
+            <div class="phase-title">XPARQ OS Dev Environment — Multi-Arch</div>
+            <div class="phase-sub">// Build Fuchsia/Zircon และ customize เป็น XPARQ OS บน ARM + x86-64</div>
+          </div>
+          <div class="phase-right">
+            <div class="duration-pill">3–6 months</div>
+            <div class="chevron">▼</div>
+          </div>
+        </div>
+        <div class="phase-body">
+          <div class="sec-label">สิ่งที่ต้องทำ</div>
+          <div class="tasks">
+            <div class="task">
+              <div class="task-ico">🏗️</div>
+              <div>
+                <div class="task-title">Fork และ Customize Fuchsia Source</div>
+                <div class="task-desc">Clone Fuchsia repo, build system เข้าใจ, rebrand เป็น XPARQ OS ในระดับ build config</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">🔬</div>
+              <div>
+                <div class="task-title">Zircon Kernel Internals Study</div>
+                <div class="task-desc">อ่านและทำความเข้าใจ kernel source: scheduler, IPC endpoints, VMO system</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">🧩</div>
+              <div>
+                <div class="task-title">สร้าง XPARQ Component Framework</div>
+                <div class="task-desc">ออกแบบ component model ของ XPARQ OS บน FIDL ให้มี identity เฉพาะตัว</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">📱</div>
+              <div>
+                <div class="task-title">Boot บน ARM Hardware จริง</div>
+                <div class="task-desc">Flash XPARQ OS บน ARM dev board เช่น Khadas VIM3 หรือ Rock Pi</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">🖥️</div>
+              <div>
+                <div class="task-title">Boot บน x86-64 PC (UEFI)</div>
+                <div class="task-desc">สร้าง UEFI bootloader สำหรับ XPARQ OS บน x86-64: GRUB/systemd-boot config, UEFI application entry point, ACPI table parsing, boot บน PC จริงหรือ QEMU x86-64 ด้วย OVMF firmware</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">🔀</div>
+              <div>
+                <div class="task-title">Multi-Arch Build Pipeline</div>
+                <div class="task-desc">ตั้งค่า GN build targets สำหรับ aarch64 และ x86-64 พร้อมกัน, cross-compilation toolchain, CI/CD ที่ build และ test ทั้งสองสถาปัตยกรรมอัตโนมัติ</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="prompt-header">
+            <div class="sec-label">MASTER PROMPTS</div>
+            <div class="master-badge">★ MASTER LEVEL</div>
+          </div>
+          <div class="prompts">
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">Multi-Arch Build System</div>
+              <div class="prompt-text">
+                ฉันกำลัง fork Fuchsia เป็น XPARQ OS และต้องการ support ทั้ง aarch64 และ x86-64 อธิบาย Fuchsia GN + Ninja build system architecture สำหรับ multi-architecture: toolchain definitions per-arch, board config layering, shared vs arch-specific source sets, และวิธี structure BUILD.gn เพื่อให้ code ที่ไม่ขึ้นกับ arch อยู่ใน common/ และ arch-specific อยู่ใน arch/arm64/ กับ arch/x86/ โดยไม่ duplicate logic
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: ตั้งค่า XPARQ OS multi-arch build pipeline</div>
+            </div>
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">UEFI Bootloader for x86-64</div>
+              <div class="prompt-text">
+                ออกแบบ XPARQ OS UEFI bootloader สำหรับ x86-64: EFI application entry point ใน Rust, ExitBootServices() transition, identity-mapped page tables setup ก่อน jump to Zircon kernel, ACPI RSDP parsing สำหรับ hardware discovery, และ Secure Boot chain of trust ที่ compatible กับ Windows Secure Boot keys — เปรียบเทียบ approach กับ Fuchsia's existing x86 boot path
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: สร้าง XPARQ OS PC bootloader</div>
+            </div>
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">FIDL Protocol Design</div>
+              <div class="prompt-text">
+                ออกแบบ FIDL protocol สำหรับ XPARQ OS core services: [1] xparq.system.identity — user authentication [2] xparq.sync.engine — cross-device state sync [3] xparq.display.compositor — UI rendering pipeline เขียน FIDL definition พร้อม explain design decision ทุกข้อ
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: ออกแบบ core API ของ XPARQ OS</div>
+            </div>
+          </div>
+
+          <div class="sec-label">เครื่องมือ</div>
+          <div class="tools">
+            <div class="tool"><div class="tool-dot" style="background:var(--accent)"></div> Fuchsia SDK / ffx</div>
+            <div class="tool"><div class="tool-dot" style="background:var(--accent2)"></div> GN + Ninja</div>
+            <div class="tool"><div class="tool-dot" style="background:var(--accent3)"></div> Zircon GDB script</div>
+            <div class="tool"><div class="tool-dot" style="background:var(--accent4)"></div> ARM dev board</div>
+            <div class="tool"><div class="tool-dot" style="background:var(--accent)"></div> QEMU AArch64 + x86-64</div>
+            <div class="tool"><div class="tool-dot" style="background:var(--accent2)"></div> OVMF (UEFI firmware)</div>
+          </div>
+
+          <div class="milestone">
+            <div class="milestone-icon">🎯</div>
+            <div>
+              <div class="milestone-title">Milestone: XPARQ OS บูตได้บน QEMU ARM64 · QEMU x86-64 · และ ARM dev board</div>
+              <div class="milestone-sub">FIDL protocol ของ XPARQ OS core services พร้อมใช้งาน · Multi-arch CI/CD build ผ่าน</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── PHASE 3 ── -->
+    <div class="phase c3">
+      <div class="phase-card" onclick="toggle(this)">
+        <div class="phase-header">
+          <div class="phase-num">03</div>
+          <div class="phase-meta">
+            <div class="phase-title">XPARQ Hardware Abstraction Layer</div>
+            <div class="phase-sub">// Driver system — ARM (Mali/TrustZone) และ x86-64 (PCIe/IOMMU/UEFI)</div>
+          </div>
+          <div class="phase-right">
+            <div class="duration-pill">1–2 years</div>
+            <div class="chevron">▼</div>
+          </div>
+        </div>
+        <div class="phase-body">
+          <div class="sec-label">Driver ที่ต้องสร้างสำหรับ XPARQ OS</div>
+          <div class="tasks">
+            <div class="task">
+              <div class="task-ico">🖥️</div>
+              <div>
+                <div class="task-title">XPARQ Display Pipeline (Priority 1)</div>
+                <div class="task-desc">ARM: Mali GPU driver, DRM/KMS layer | x86: Intel/AMD GPU via DRM, XPARQ Compositor interface — รากฐานของ UI ทั้งหมด รองรับทั้งสองสถาปัตยกรรม</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">👆</div>
+              <div>
+                <div class="task-title">XPARQ Input Subsystem</div>
+                <div class="task-desc">Multitouch HID driver, gesture recognizer kernel-level, stylus support | x86: USB HID keyboard/mouse, PS/2 compat layer</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">📶</div>
+              <div>
+                <div class="task-title">XPARQ Connectivity Stack</div>
+                <div class="task-desc">WiFi 6E driver, Bluetooth 5.3 LE Audio, UWB สำหรับ device sync | x86: PCIe WiFi card driver (Intel AX210), Ethernet (Intel I225)</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">🔋</div>
+              <div>
+                <div class="task-title">XPARQ Power Management</div>
+                <div class="task-desc">ARM: DVFS, thermal governor, battery state machine | x86: ACPI S-states (S0–S5), Intel P-state/C-state, PCIe ASPM power saving</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">📷</div>
+              <div>
+                <div class="task-title">XPARQ Sensor Fusion</div>
+                <div class="task-desc">Camera ISP pipeline, IMU/accelerometer, secure element สำหรับ biometric</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">💾</div>
+              <div>
+                <div class="task-title">XPARQ Storage Stack (x86 focus)</div>
+                <div class="task-desc">NVMe driver สำหรับ PCIe SSD, AHCI/SATA compat, IOMMU-backed DMA protection — PC มักใช้ NVMe ซึ่ง ARM device ไม่มี</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="prompt-header">
+            <div class="sec-label">MASTER PROMPTS</div>
+            <div class="master-badge">★ MASTER LEVEL</div>
+          </div>
+          <div class="prompts">
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">Display Driver Architecture</div>
+              <div class="prompt-text">
+                สำหรับ XPARQ OS Display Pipeline บน ARM Mali-G710 GPU: อธิบาย render pipeline ตั้งแต่ GPU command buffer → DRM/KMS → CRTC → panel ครบ พร้อม Fuchsia Driver Framework (DFv2) binding pattern ใน Rust อธิบาย scanout flow, vsync interrupt handling และ triple buffering strategy เพื่อให้ได้ 120fps ที่ไม่มี tearing
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: เขียน XPARQ display driver</div>
+            </div>
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">Connectivity Sync Architecture</div>
+              <div class="prompt-text">
+                XPARQ OS ต้องการ seamless cross-device sync เหมือน Apple Handoff ออกแบบ low-level connectivity architecture: WiFi Aware (NAN) protocol สำหรับ device discovery, BLE advertisement strategy, UWB ranging สำหรับ proximity detection และ secure channel establishment ระหว่าง XPARQ devices โดยใช้ kernel-level cryptographic primitives
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: ออกแบบ XPARQ device sync protocol</div>
+            </div>
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">x86 PCIe & NVMe Driver Design</div>
+              <div class="prompt-text">
+                ออกแบบ XPARQ OS driver stack สำหรับ x86-64 PC: PCIe bus enumeration ผ่าน ECAM (Enhanced Configuration Access Mechanism), NVMe driver ใน Fuchsia DFv2 Rust framework — queue pair setup, submission/completion queue, namespace discovery และ IOMMU (Intel VT-d) integration เพื่อ isolate DMA access ของแต่ละ driver ใน XPARQ OS capability model
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: เขียน XPARQ OS storage driver สำหรับ PC</div>
+            </div>
+          </div>
+
+          <div class="milestone">
+            <div class="milestone-icon">🎯</div>
+            <div>
+              <div class="milestone-title">Milestone: XPARQ OS บูต แสดงผล 120fps และรับ input ได้บนทั้ง ARM board และ x86-64 PC</div>
+              <div class="milestone-sub">WiFi connect ได้ · NVMe boot บน PC · Hardware layer สมบูรณ์ทั้งสองสถาปัตยกรรม</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── PHASE 3.5 ── -->
+    <div class="phase c3">
+      <div class="phase-card" onclick="toggle(this)">
+        <div class="phase-header">
+          <div class="phase-num" style="font-size:10px">3.5</div>
+          <div class="phase-meta">
+            <div class="phase-title">XPARQ PC Platform Layer <span style="font-size:10px;color:var(--accent3);font-family:'Space Mono',monospace;margin-left:8px">[x86-64 ONLY]</span></div>
+            <div class="phase-sub">// ทำให้ XPARQ OS ทำงานได้ดีบน PC เหมือน native OS</div>
+          </div>
+          <div class="phase-right">
+            <div class="duration-pill">6–12 months</div>
+            <div class="chevron">▼</div>
+          </div>
+        </div>
+        <div class="phase-body">
+          <div class="sec-label">สิ่งที่ต้องสร้างเฉพาะ x86-64</div>
+          <div class="tasks">
+            <div class="task">
+              <div class="task-ico">🖱️</div>
+              <div>
+                <div class="task-title">XPARQ Desktop Shell Mode</div>
+                <div class="task-desc">Window manager สำหรับ PC: multi-window, resize/drag, virtual desktops, taskbar — แยก shell mode จาก mobile shell ของ ARM โดยใช้ Flutter adaptive layout</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">🎮</div>
+              <div>
+                <div class="task-title">XPARQ GPU Compute (x86)</div>
+                <div class="task-desc">Vulkan driver สำหรับ AMD RDNA / Intel Arc GPU, GPU compute API สำหรับ AI workload บน PC, hardware video decode (VA-API)</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">🔊</div>
+              <div>
+                <div class="task-title">XPARQ Audio Stack (PCIe)</div>
+                <div class="task-desc">Intel HDA (High Definition Audio) driver, USB Audio 2.0, ASIO-like low-latency audio path สำหรับ professional use</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">🔒</div>
+              <div>
+                <div class="task-title">XPARQ Security (x86 TEE)</div>
+                <div class="task-desc">Intel TDX / AMD SEV สำหรับ confidential computing, TPM 2.0 integration แทน TrustZone, fTPM via firmware</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">🪟</div>
+              <div>
+                <div class="task-title">XPARQ App Compatibility Layer</div>
+                <div class="task-desc">Linux syscall translation layer (คล้าย WSL2) เพื่อรัน Linux apps บน XPARQ OS บน PC ได้ทันที — ลดความเสียเปรียบด้าน app ecosystem</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="prompt-header">
+            <div class="sec-label">MASTER PROMPTS</div>
+            <div class="master-badge">★ MASTER LEVEL</div>
+          </div>
+          <div class="prompts">
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">Desktop Window Manager Design</div>
+              <div class="prompt-text">
+                ออกแบบ XPARQ Desktop Shell สำหรับ PC (x86-64): window management protocol บน XPARQ Compositor (คล้าย Wayland แต่ใช้ FIDL), multi-monitor support with different DPI, window stacking model, focus policy และ Flutter adaptive layout strategy ที่ใช้ codebase เดียวกับ XPARQ mobile shell แต่ render ต่างกันตาม device type
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: สร้าง XPARQ OS PC desktop experience</div>
+            </div>
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">Linux App Compatibility</div>
+              <div class="prompt-text">
+                ออกแบบ XPARQ Linux Compatibility Layer บน x86-64: syscall translation table จาก Linux ABI ไปยัง Zircon syscalls, procfs/sysfs emulation layer, ELF binary loader ใน userspace component, และ strategy สำหรับ handle Linux kernel extensions ที่ไม่มี Zircon equivalent — เปรียบเทียบ approach กับ WSL2 (VM-based) กับ Wine (translation-based)
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: สร้าง app compat layer สำหรับ XPARQ PC</div>
+            </div>
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">x86 Security Architecture</div>
+              <div class="prompt-text">
+                ออกแบบ XPARQ OS security layer บน x86-64 แทน ARM TrustZone: TPM 2.0 integration สำหรับ key storage และ measured boot, Intel TDX (Trust Domain Extensions) สำหรับ isolate sensitive workloads, IOMMU-backed device isolation และ UEFI Secure Boot chain ที่ verify XPARQ OS bootloader ตั้งแต่ firmware ถึง kernel
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: ออกแบบ XPARQ PC security architecture</div>
+            </div>
+          </div>
+
+          <div class="milestone">
+            <div class="milestone-icon">🎯</div>
+            <div>
+              <div class="milestone-title">Milestone: XPARQ OS มี Desktop mode ที่ใช้งาน PC ได้จริง — window, keyboard, mouse ครบ</div>
+              <div class="milestone-sub">รัน Linux app บน XPARQ PC ได้ผ่าน compatibility layer · GPU accelerated UI</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── PHASE 4 ── -->
+    <div class="phase c4">
+      <div class="phase-card" onclick="toggle(this)">
+        <div class="phase-header">
+          <div class="phase-num">04</div>
+          <div class="phase-meta">
+            <div class="phase-title">XPARQ UI & Experience System</div>
+            <div class="phase-sub">// ทำให้ XPARQ OS รู้สึก premium และลื่นกว่า iOS</div>
+          </div>
+          <div class="phase-right">
+            <div class="duration-pill">1–2 years</div>
+            <div class="chevron">▼</div>
+          </div>
+        </div>
+        <div class="phase-body">
+          <div class="sec-label">สิ่งที่ต้องสร้าง</div>
+          <div class="tasks">
+            <div class="task">
+              <div class="task-ico">🎨</div>
+              <div>
+                <div class="task-title">XPARQ Design Language</div>
+                <div class="task-desc">Visual identity ของ XPARQ OS: typography system, color semantics, spatial grid, motion principles</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">✨</div>
+              <div>
+                <div class="task-title">XPARQ Motion Engine</div>
+                <div class="task-desc">Physics-based spring animations, predictive gesture tracking, interrupt-driven animation system ที่ตอบสนองได้ภายใน 8ms</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">🏠</div>
+              <div>
+                <div class="task-title">XPARQ Shell</div>
+                <div class="task-desc">Home, multitasking, notification center, control panel — สร้างบน Flutter + XPARQ compositor</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">🤖</div>
+              <div>
+                <div class="task-title">XPARQ Intelligence (AI built-in)</div>
+                <div class="task-desc">On-device AI assistant, context-aware suggestions, cross-app intelligence layer</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="prompt-header">
+            <div class="sec-label">MASTER PROMPTS</div>
+            <div class="master-badge">★ MASTER LEVEL</div>
+          </div>
+          <div class="prompts">
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">Motion System Design</div>
+              <div class="prompt-text">
+                ออกแบบ XPARQ Motion Engine ที่ทำให้ XPARQ OS ลื่นเหนือ iOS: อธิบาย spring physics model (stiffness, damping, mass parameters) สำหรับแต่ละ interaction type พร้อม Flutter implementation ใช้ gesture velocity prediction เพื่อ start animation ก่อน finger lift 16ms, interrupt-driven animation cancellation และ frame budget management สำหรับ 120Hz ProMotion display
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: พัฒนา XPARQ animation ให้ลื่นกว่า iOS</div>
+            </div>
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">XPARQ Compositor Architecture</div>
+              <div class="prompt-text">
+                ออกแบบ XPARQ OS Compositor บน Zircon/Magma graphics stack: explain scene graph architecture, layer compositing strategy (GPU vs overlay), damage tracking algorithm สำหรับ partial screen updates, HDR tone mapping pipeline และ secure content protection สำหรับ DRM content เปรียบเทียบ approach กับ Apple's CALayer และ Android SurfaceFlinger
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: สร้าง XPARQ rendering pipeline</div>
+            </div>
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">On-Device AI Integration</div>
+              <div class="prompt-text">
+                ออกแบบ XPARQ Intelligence layer: วิธี integrate on-device LLM (เช่น Gemma 3 2B) เป็น system service ใน Fuchsia component model, Neural Processing Unit (NPU) driver architecture บน ARM Ethos-N78, sandboxing strategy สำหรับ AI inference engine, และ privacy-preserving context API ที่ให้ apps access intelligence โดยไม่เห็น raw user data
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: สร้าง XPARQ AI ที่ built-in ระดับ OS</div>
+            </div>
+          </div>
+
+          <div class="milestone">
+            <div class="milestone-icon">🎯</div>
+            <div>
+              <div class="milestone-title">Milestone: XPARQ OS Shell ที่สวย ลื่น 120fps มี AI built-in</div>
+              <div class="milestone-sub">รู้สึก premium และมีเอกลักษณ์เฉพาะของ XPARQ OS</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── PHASE 5 ── -->
+    <div class="phase c1">
+      <div class="phase-card" onclick="toggle(this)">
+        <div class="phase-header">
+          <div class="phase-num">05</div>
+          <div class="phase-meta">
+            <div class="phase-title">XPARQ Ecosystem & Sync Engine</div>
+            <div class="phase-sub">// จุดที่ทำให้ XPARQ OS เหนือกว่า Apple ในด้าน openness</div>
+          </div>
+          <div class="phase-right">
+            <div class="duration-pill">2–3 years</div>
+            <div class="chevron">▼</div>
+          </div>
+        </div>
+        <div class="phase-body">
+          <div class="sec-label">สิ่งที่ต้องสร้าง</div>
+          <div class="tasks">
+            <div class="task">
+              <div class="task-ico">☁️</div>
+              <div>
+                <div class="task-title">XPARQ Sync Engine</div>
+                <div class="task-desc">CRDTs-based sync protocol, E2E encrypted state replication, conflict-free multi-device state</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">🔐</div>
+              <div>
+                <div class="task-title">XPARQ Identity & Trust</div>
+                <div class="task-desc">Decentralized identity (DID), biometric binding, hardware-backed key storage บน TrustZone</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">📲</div>
+              <div>
+                <div class="task-title">XPARQ Developer Platform</div>
+                <div class="task-desc">SDK, App Store, review pipeline, developer portal — เปิดให้ทุกคนสร้างแอปบน XPARQ OS</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">🔗</div>
+              <div>
+                <div class="task-title">XPARQ Cross-Platform Bridge</div>
+                <div class="task-desc">รัน Flutter apps จาก Android/iOS บน XPARQ OS โดยไม่ต้อง rewrite</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="prompt-header">
+            <div class="sec-label">MASTER PROMPTS</div>
+            <div class="master-badge">★ MASTER LEVEL</div>
+          </div>
+          <div class="prompts">
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">CRDT Sync Protocol Design</div>
+              <div class="prompt-text">
+                ออกแบบ XPARQ Sync Engine โดยใช้ CRDT (Conflict-free Replicated Data Types): เลือก CRDT variant (LWW-register, OR-Set, RGA สำหรับ text) ที่เหมาะกับแต่ละ data type ใน XPARQ OS, delta-state sync protocol เพื่อลด bandwidth, causal consistency model, และ E2E encryption key management ที่ทำให้ XPARQ cloud server ไม่เห็น plaintext user data เลย
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: สร้าง XPARQ cross-device sync</div>
+            </div>
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">Hardware-Backed Security</div>
+              <div class="prompt-text">
+                ออกแบบ XPARQ Identity system บน ARM TrustZone: Trusted Application (TA) ใน secure world สำหรับ private key operations, biometric template storage ใน secure storage, FIDO2/WebAuthn passkey implementation, และ secure enclave API ที่ normal world apps เรียกใช้ได้ผ่าน XPARQ TEE FIDL interface พร้อม threat model ของ design นี้
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: สร้าง XPARQ security ระดับ hardware</div>
+            </div>
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">Developer SDK Architecture</div>
+              <div class="prompt-text">
+                ออกแบบ XPARQ SDK ที่ดีกว่า iOS SDK และ Android SDK: API surface design principles สำหรับ XPARQ OS, Dart/Flutter binding สำหรับ XPARQ system services, sandboxing และ capability declaration model สำหรับ third-party apps, SDK versioning strategy ที่ maintain backward compatibility ข้าม XPARQ OS releases และ developer tooling (profiler, memory analyzer) ที่ built into ffx
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: สร้าง XPARQ Developer Platform</div>
+            </div>
+          </div>
+
+          <div class="milestone">
+            <div class="milestone-icon">🎯</div>
+            <div>
+              <div class="milestone-title">Milestone: XPARQ OS sync ข้อมูลระหว่าง 2 devices แบบ real-time</div>
+              <div class="milestone-sub">Developer SDK พร้อม — developer ภายนอกเริ่มสร้างแอปได้</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── PHASE 6 ── -->
+    <div class="phase c2">
+      <div class="phase-card" onclick="toggle(this)">
+        <div class="phase-header">
+          <div class="phase-num">06</div>
+          <div class="phase-meta">
+            <div class="phase-title">XPARQ OS Public Launch</div>
+            <div class="phase-sub">// เปิดตัว XPARQ OS สู่โลก</div>
+          </div>
+          <div class="phase-right">
+            <div class="duration-pill">1–2 years</div>
+            <div class="chevron">▼</div>
+          </div>
+        </div>
+        <div class="phase-body">
+          <div class="sec-label">สิ่งที่ต้องทำ</div>
+          <div class="tasks">
+            <div class="task">
+              <div class="task-ico">🧪</div>
+              <div>
+                <div class="task-title">XPARQ Beta Program</div>
+                <div class="task-desc">Early adopter program, crash reporting pipeline, A/B testing framework สำหรับ UX experiments</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">📚</div>
+              <div>
+                <div class="task-title">XPARQ Developer Docs</div>
+                <div class="task-desc">API reference, architecture guide, sample apps, video tutorials — ดีกว่า Apple Developer Docs</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">🌍</div>
+              <div>
+                <div class="task-title">XPARQ Open Source Community</div>
+                <div class="task-desc">เปิด source บางส่วน, governance model, contributor program, RFC process</div>
+              </div>
+            </div>
+            <div class="task">
+              <div class="task-ico">📱</div>
+              <div>
+                <div class="task-title">XPARQ Hardware Program</div>
+                <div class="task-desc">Reference hardware design, OEM partner program, XPARQ OS certification สำหรับ manufacturers</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="prompt-header">
+            <div class="sec-label">MASTER PROMPTS</div>
+            <div class="master-badge">★ MASTER LEVEL</div>
+          </div>
+          <div class="prompts">
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">Crash Analysis System</div>
+              <div class="prompt-text">
+                ออกแบบ XPARQ OS crash reporting และ telemetry system: symbolication pipeline สำหรับ Zircon kernel crash dumps, minidump format สำหรับ userspace crashes, privacy-preserving aggregation ที่ไม่ส่ง PII, anomaly detection บน crash patterns เพื่อ detect regression โดยอัตโนมัติ และ AI-assisted root cause clustering ของ crash reports
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: สร้าง XPARQ OS quality system</div>
+            </div>
+            <div class="prompt-card" onclick="copyPrompt(this, event)">
+              <div class="copy-btn">COPY</div>
+              <div class="prompt-label">Open Source Strategy</div>
+              <div class="prompt-text">
+                วางแผน XPARQ OS open source strategy: กำหนดว่า layer ใดควร open (kernel, drivers, core frameworks) และ layer ใดควร proprietary (AI model, cloud sync backend, App Store) เพื่อ balance community growth กับ competitive advantage ออกแบบ contributor agreement, RFC process, security disclosure policy และ long-term foundation governance model
+              </div>
+              <div class="prompt-context">// ใช้เมื่อ: วางแผน XPARQ OS community</div>
+            </div>
+          </div>
+
+          <div class="milestone">
+            <div class="milestone-icon">🚀</div>
+            <div>
+              <div class="milestone-title">Milestone: XPARQ OS 1.0 — Public Beta ที่โลกใช้งานได้จริง</div>
+              <div class="milestone-sub">มี developer ecosystem · app store · hardware partner</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end phases -->
+
+  <!-- FOOTER -->
+  <div class="footer-note">
+    <p>
+      <strong>XPARQ OS</strong> — ไม่ใช่แค่ OS อีกตัว<br>
+      มันคือ OS ที่สร้างด้วย <em>วิสัยทัศน์ที่ชัดเจน</em> ตั้งแต่ Kernel ถึง Ecosystem<br>
+      รองรับทั้ง <strong>ARM</strong> (Mobile/Embedded) และ <strong style="color:var(--accent3)">x86-64</strong> (PC/Workstation) ด้วย Codebase เดียว<br><br>
+      <strong>กฎของการพัฒนาด้วย AI 100%:</strong><br>
+      อย่าถาม AI ว่า "ทำยังไง" — ถามว่า "ทำไมถึงต้องทำแบบนี้ และ trade-off คืออะไร"<br>
+      เพราะ <em>engineer ที่เข้าใจ why</em> จะสร้าง XPARQ OS ได้ — แต่คนที่รู้แค่ how จะทำได้แค่ copy
+    </p>
+  </div>
+
+</div>
+
+<div class="toast" id="toast">✓ Copied to clipboard</div>
+
+<script>
+  function toggle(card) {
+    card.classList.toggle('open');
+    const body = card.querySelector('.phase-body');
+    body.classList.toggle('open');
+  }
+
+  // Open phase 1 by default
+  const first = document.querySelector('.phase-card');
+  if (first) {
+    first.classList.add('open');
+    first.querySelector('.phase-body').classList.add('open');
+  }
+
+  function copyPrompt(card, e) {
+    e.stopPropagation();
+    const text = card.querySelector('.prompt-text').textContent.trim();
+    navigator.clipboard.writeText(text).catch(() => {});
+    const toast = document.getElementById('toast');
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2200);
+  }
+</script>
+</body>
+</html>

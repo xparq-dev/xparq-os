@@ -1,0 +1,39 @@
+# XPARQ OS - Phase 01: OS & Kernel Foundations
+# Hardware Abstraction Layer - Phase 3: Hardware Abstraction Layer
+# Provides unified hardware interface across ARM and x86 architectures
+
+[package]
+name = "xparq-hal"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+# no_std core dependencies
+spin = "0.9"
+volatile = "0.5"
+bitflags = "2.4"
+static_assertions = "1.1"
+arrayvec = { version = "0.7", default-features = false }
+libm = "0.2"
+
+# Architecture-specific dependencies (optional)
+aarch64-cpu = { version = "9.4", optional = true }
+x86_64 = { version = "0.14", optional = true }
+
+# FIDL interface definitions
+xparq-fidl = { path = "../interfaces/fidl" }
+
+[features]
+default = []
+arm64 = ["aarch64-cpu"]
+x86_64 = ["dep:x86_64"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true
