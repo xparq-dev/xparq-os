@@ -6,6 +6,8 @@ use crate::HalError;
 pub mod display;
 pub mod keyboard;
 pub mod mouse;
+pub mod power;
+pub mod storage;
 
 pub fn init_arch_specific() -> Result<(), HalError> {
     println!("Initializing x86-64-specific HAL...");

@@ -14,6 +14,9 @@ pub struct VgaTextDisplay {
     cursor_x: u32,
     cursor_y: u32,
     current_color: u8,
+    mouse_x: u32,
+    mouse_y: u32,
+    saved_char: Option<(u8, u8)>, // (character, color)
 }
 
 /// VGA Color Codes
@@ -49,6 +52,70 @@ impl VgaTextDisplay {
             cursor_x: 0,
             cursor_y: 0,
             current_color: VgaTextDisplay::make_color(VgaColor::White, VgaColor::Blue),
+            mouse_x: 0,
+            mouse_y: 0,
+            saved_char: None,
+        }
+    }
+    
+    /// Get mouse position
+    pub fn get_mouse_pos(&self) -> (u32, u32) {
+        (self.mouse_x, self.mouse_y)
+    }
+    
+    /// Set mouse position
+    pub fn set_mouse_pos(&mut self, x: u32, y: u32) {
+        let new_x = x.clamp(0, self.width - 1);
+        let new_y = y.clamp(0, self.height - 1);
+        
+        if new_x != self.mouse_x || new_y != self.mouse_y {
+            // Restore old character first
+            self.restore_saved_char();
+            
+            // Update position
+            self.mouse_x = new_x;
+            self.mouse_y = new_y;
+            
+            // Draw new cursor
+            self.draw_mouse_cursor();
+        }
+    }
+    
+    /// Move mouse relative
+    pub fn move_mouse(&mut self, dx: i32, dy: i32) {
+        let new_x = (self.mouse_x as i32 + dx).clamp(0, self.width as i32 - 1) as u32;
+        let new_y = (self.mouse_y as i32 + dy).clamp(0, self.height as i32 - 1) as u32;
+        self.set_mouse_pos(new_x, new_y);
+    }
+    
+    /// Draw mouse cursor
+    fn draw_mouse_cursor(&mut self) {
+        let offset = (self.mouse_y * self.width + self.mouse_x) as usize * 2;
+        let addr = (self.buffer_addr + offset) as *mut u16;
+        
+        // Save current character and color
+        unsafe {
+            let value = read_volatile(addr);
+            let old_char = (value & 0xFF) as u8;
+            let old_color = ((value >> 8) & 0xFF) as u8;
+            self.saved_char = Some((old_char, old_color));
+            
+            // Draw cursor (inverted block)
+            let cursor_color = VgaTextDisplay::make_color(VgaColor::Black, VgaColor::White);
+            let cursor_value = ((cursor_color as u16) << 8) | (b'*' as u16);
+            write_volatile(addr, cursor_value);
+        }
+    }
+    
+    /// Restore saved character
+    fn restore_saved_char(&mut self) {
+        if let Some((saved_char, saved_color)) = self.saved_char.take() {
+            let offset = (self.mouse_y * self.width + self.mouse_x) as usize * 2;
+            let addr = (self.buffer_addr + offset) as *mut u16;
+            let value = ((saved_color as u16) << 8) | (saved_char as u16);
+            unsafe {
+                write_volatile(addr, value);
+            }
         }
     }
 
@@ -155,6 +222,9 @@ impl VgaTextDisplay {
 
     /// Clear the entire screen
     pub fn clear_screen(&mut self, color: u8) {
+        // Restore saved character first
+        self.restore_saved_char();
+        
         for y in 0..self.height {
             for x in 0..self.width {
                 self.write_char(x, y, b' ', color);
@@ -162,6 +232,9 @@ impl VgaTextDisplay {
         }
         self.cursor_x = 0;
         self.cursor_y = 0;
+        
+        // Redraw mouse cursor
+        self.draw_mouse_cursor();
     }
 
     /// Clear a single line
