@@ -15,8 +15,9 @@ This repository is currently in a foundation/prototype stage. The current source
 - Build artifact contract: `docs/build-contract.md`
 - Execution and structure plan: `docs/project-structure-plan.md`
 - Current status ledger: `docs/implementation-status.md`
+- AI handoff note: `docs/ai-handoff.md`
 
-If you are an AI agent taking over this repository, read `docs/implementation-status.md` first. It contains the current boot status, authoritative paths, and the handoff notes for continuing work safely.
+If you are an AI agent taking over this repository, read `docs/ai-handoff.md` first. It is the shortest path to the current truth and links to the detailed status docs.
 
 If you are on Windows, use the PowerShell build scripts in `tools/`:
 

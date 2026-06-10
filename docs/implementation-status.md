@@ -53,7 +53,7 @@ It is the source of truth for execution status and should be updated continuousl
 
 If you are an AI agent continuing work in this repository:
 
-1. Read this file first, then `docs/build-contract.md`, then `README.md`.
+1. Read `docs/ai-handoff.md` first, then this file, then `docs/build-contract.md`.
 2. The authoritative boot path is currently `kernel/src/main_simple.rs`.
 3. ARM64 and x86-64 boot verification both pass in QEMU.
 4. Windows PowerShell scripts in `tools/` are the canonical build entrypoints on this machine.
