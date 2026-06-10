@@ -8,7 +8,7 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["staticlib"]
+crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 # no_std core dependencies
@@ -27,9 +27,12 @@ x86_64 = { version = "0.14", optional = true }
 xparq-fidl = { path = "../interfaces/fidl" }
 
 [features]
-default = []
+default = ["standalone"]
 arm64 = ["aarch64-cpu"]
 x86_64 = ["dep:x86_64"]
+standalone = []
+kernel = []
+alloc = []
 
 [profile.dev]
 panic = "abort"

@@ -24,6 +24,13 @@ pub mod input;
 pub mod power;
 pub mod storage;
 
+// Architecture-specific modules
+#[cfg(target_arch = "aarch64")]
+pub mod arm64;
+
+#[cfg(target_arch = "x86_64")]
+pub mod x86_64;
+
 // Re-export main traits for easy access
 pub use display::{DisplayDriver, DisplayInfo, DisplayMode, PixelFormat};
 pub use input::{InputDriver, InputEvent, InputDeviceType, InputEventKind};
@@ -120,12 +127,6 @@ impl core::ops::BitOr for HalFeatures {
             sensors: self.sensors || rhs.sensors,
         }
     }
-}
-
-/// Panic handler for no_std
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
 }
 
 /// HAL version information
@@ -332,36 +333,6 @@ pub fn get_device_manager_mut() -> Option<&'static mut DeviceManager> {
     unsafe { DEVICE_MANAGER.as_mut() }
 }
 
-/// Architecture-specific HAL initialization
-#[cfg(target_arch = "aarch64")]
-pub mod arm64 {
-    pub fn init_arch_specific() -> Result<(), HalError> {
-        println!("Initializing ARM64-specific HAL...");
-        
-        // Phase 1: Basic ARM64 HAL initialization
-        // Phase 2: Full ARM64 driver initialization
-        
-        println!("ARM64-specific HAL initialized");
-        Ok(())
-    }
-}
-
-/// Architecture-specific HAL initialization
-#[cfg(target_arch = "x86_64")]
-pub mod x86_64 {
-    use super::HalError;
-    
-    pub fn init_arch_specific() -> Result<(), HalError> {
-        println!("Initializing x86-64-specific HAL...");
-        
-        // Phase 1: Basic x86-64 HAL initialization
-        // Phase 2: Full x86-64 driver initialization
-        
-        println!("x86-64-specific HAL initialized");
-        Ok(())
-    }
-}
-
 /// HAL utilities
 pub mod utils {
     use super::*;
@@ -447,3 +418,14 @@ impl Default for HalError {
         Self::HardwareFailure
     }
 }
+
+use core::panic::PanicInfo;
+
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    loop {
+        core::hint::spin_loop();
+    }
+}
+
+

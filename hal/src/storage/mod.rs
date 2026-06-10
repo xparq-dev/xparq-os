@@ -1,10 +1,6 @@
 // XPARQ OS - Phase 01: OS & Kernel Foundations
 // HAL Storage module - Phase 3: Hardware Abstraction Layer
 // Provides unified storage interface across ARM and x86 architectures
-
-#![no_std]
-
-use bitflags::bitflags;
 use arrayvec::ArrayVec;
 
 /// Storage driver trait

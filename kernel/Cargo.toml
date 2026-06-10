@@ -26,6 +26,9 @@ x86_64 = { version = "0.14", default-features = false, optional = true }
 # FIDL interface definitions
 xparq-fidl = { path = "../interfaces/fidl" }
 
+# Hardware Abstraction Layer
+xparq-hal = { path = "../hal", default-features = false, features = ["kernel"] }
+
 [features]
 default = []
 arm64 = ["aarch64-cpu"]

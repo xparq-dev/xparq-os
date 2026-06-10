@@ -2,8 +2,6 @@
 // HAL Display module - Phase 3: Hardware Abstraction Layer
 // Provides unified display interface across ARM and x86 architectures
 
-#![no_std]
-
 use bitflags::bitflags;
 use arrayvec::ArrayVec;
 

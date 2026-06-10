@@ -5,9 +5,10 @@ It is the source of truth for execution status and should be updated continuousl
 
 ## Current Stage
 
-- Program stage: Phase 2 complete for boot verification, Phase 3 not started yet
+- Program stage: Phase 2 complete for boot verification, **Phase 3 in progress**
 - Repository type: Architecture-first with multiple active prototypes
 - Risk level: Medium (prototype code still exists, but boot path is now stable)
+- Phase 3 focus: HAL implementation starting with display subsystem
 
 ## Authoritative Paths (Current)
 
@@ -31,7 +32,7 @@ It is the source of truth for execution status and should be updated continuousl
 | Syscalls | `kernel/src/syscalls.rs` | stub | Many handlers are placeholders |
 | ARM bootloader | `bootloader/arm64/src/main_simple.rs` | in-progress | Cargo configured as staticlib (needs alignment later) |
 | x86 bootloader | `bootloader/x86_64/src/mbr.rs` | in-progress | Multiple x86 boot variants still coexist |
-| HAL | `hal/src/` | in-progress | Strong interface design, backend behavior mostly stub |
+| HAL | `hal/src/` | in-progress | Strong interface design, architecture-specific modules (x86_64/arm64) created, basic display drivers implemented, integrated with kernel boot path! |
 | FIDL interfaces | `interfaces/fidl/src/` | in-progress | Protocol modeling exists, transport/serialization partial |
 | Experimental kernel | `kernel-simple/` | prototype | Excluded from workspace; still useful for quick tests |
 

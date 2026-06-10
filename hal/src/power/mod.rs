@@ -1,10 +1,6 @@
 // XPARQ OS - Phase 01: OS & Kernel Foundations
 // HAL Power module - Phase 3: Hardware Abstraction Layer
 // Provides unified power management interface across ARM and x86 architectures
-
-#![no_std]
-
-use bitflags::bitflags;
 use arrayvec::ArrayVec;
 use core::sync::atomic::{AtomicU64, Ordering};
 

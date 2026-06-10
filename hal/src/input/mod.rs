@@ -2,8 +2,6 @@
 // HAL Input module - Phase 3: Hardware Abstraction Layer
 // Provides unified input interface across ARM and x86 architectures
 
-#![no_std]
-
 use bitflags::bitflags;
 use arrayvec::ArrayVec;
 use libm;
@@ -381,8 +379,6 @@ static mut INPUT_MANAGER_INITIALIZED: bool = false;
 
 /// Initialize input subsystem
 pub fn init() -> Result<(), super::HalError> {
-    println!("Initializing input subsystem...");
-    
     unsafe {
         if INPUT_MANAGER_INITIALIZED {
             return Ok(());
@@ -392,18 +388,14 @@ pub fn init() -> Result<(), super::HalError> {
         INPUT_MANAGER_INITIALIZED = true;
         
         // Initialize architecture-specific input drivers
-        #[cfg(target_arch = "aarch64")]
-        {
-            // Phase 1: Dummy ARM64 input drivers
-            // Phase 2: Real ARM64 touchscreen, keyboard, sensor drivers
-            println!("Initializing ARM64 input drivers");
-        }
-        
         #[cfg(target_arch = "x86_64")]
         {
-            // Phase 1: Dummy x86-64 input drivers
-            // Phase 2: Real x86-64 USB HID, keyboard, mouse drivers
-            println!("Initializing x86-64 input drivers");
+            // Phase 1: Real PS/2 keyboard/mouse drivers
+            let mut _keyboard = crate::x86_64::keyboard::Ps2Keyboard::new();
+            _ = _keyboard.init();
+            
+            let mut _mouse = crate::x86_64::mouse::Ps2Mouse::new();
+            _ = _mouse.init();
         }
         
         if let Some(manager) = &mut INPUT_MANAGER {
@@ -412,7 +404,6 @@ pub fn init() -> Result<(), super::HalError> {
         }
     }
     
-    println!("Input subsystem initialized");
     Ok(())
 }
 
@@ -443,65 +434,62 @@ fn delay_ms(_ms: u32) {
 pub mod utils {
     use super::*;
     
-    /// Convert keycode to character
+    /// Convert keycode to character (PS/2 scancodes, set 1)
     pub fn keycode_to_char(keycode: u32, modifiers: Modifiers) -> Option<char> {
         // Phase 1: Basic US keyboard layout
         // Phase 2: Full international keyboard support
         
-        match keycode {
-            0x04 => Some('a'),
-            0x05 => Some('b'),
-            0x06 => Some('c'),
-            0x07 => Some('d'),
-            0x08 => Some('e'),
-            0x09 => Some('f'),
-            0x0A => Some('g'),
-            0x0B => Some('h'),
-            0x0C => Some('i'),
-            0x0D => Some('j'),
-            0x0E => Some('k'),
-            0x0F => Some('l'),
-            0x10 => Some('m'),
-            0x11 => Some('n'),
-            0x12 => Some('o'),
-            0x13 => Some('p'),
-            0x14 => Some('q'),
-            0x15 => Some('r'),
-            0x16 => Some('s'),
-            0x17 => Some('t'),
-            0x18 => Some('u'),
-            0x19 => Some('v'),
-            0x1A => Some('w'),
-            0x1B => Some('x'),
-            0x1C => Some('y'),
-            0x1D => Some('z'),
-            0x1E => Some('1'),
-            0x1F => Some('2'),
-            0x20 => Some('3'),
-            0x21 => Some('4'),
-            0x22 => Some('5'),
-            0x23 => Some('6'),
-            0x24 => Some('7'),
-            0x25 => Some('8'),
-            0x26 => Some('9'),
-            0x27 => Some('0'),
-            0x28 => Some('\n'),
-            0x29 => Some('\x1b'), // Escape
-            0x2A => Some('\x08'), // Backspace
-            0x2B => Some('\t'),   // Tab
-            0x2C => Some(' '),
-            0x2D => Some('-'),
-            0x2E => Some('='),
-            0x2F => Some('['),
-            0x30 => Some(']'),
-            0x31 => Some('\\'),
-            0x32 => Some('#'),
-            0x33 => Some(';'),
-            0x34 => Some('\''),
-            0x35 => Some('`'),
-            0x36 => Some(','),
-            0x37 => Some('.'),
-            0x38 => Some('/'),
+        let shift = modifiers.contains(Modifiers::SHIFT);
+        
+        match keycode as u8 {
+            0x02 => Some(if shift { '!' } else { '1' }),
+            0x03 => Some(if shift { '@' } else { '2' }),
+            0x04 => Some(if shift { '#' } else { '3' }),
+            0x05 => Some(if shift { '$' } else { '4' }),
+            0x06 => Some(if shift { '%' } else { '5' }),
+            0x07 => Some(if shift { '^' } else { '6' }),
+            0x08 => Some(if shift { '&' } else { '7' }),
+            0x09 => Some(if shift { '*' } else { '8' }),
+            0x0A => Some(if shift { '(' } else { '9' }),
+            0x0B => Some(if shift { ')' } else { '0' }),
+            0x0C => Some(if shift { '_' } else { '-' }),
+            0x0D => Some(if shift { '+' } else { '=' }),
+            0x10 => Some(if shift { 'Q' } else { 'q' }),
+            0x11 => Some(if shift { 'W' } else { 'w' }),
+            0x12 => Some(if shift { 'E' } else { 'e' }),
+            0x13 => Some(if shift { 'R' } else { 'r' }),
+            0x14 => Some(if shift { 'T' } else { 't' }),
+            0x15 => Some(if shift { 'Y' } else { 'y' }),
+            0x16 => Some(if shift { 'U' } else { 'u' }),
+            0x17 => Some(if shift { 'I' } else { 'i' }),
+            0x18 => Some(if shift { 'O' } else { 'o' }),
+            0x19 => Some(if shift { 'P' } else { 'p' }),
+            0x1A => Some(if shift { '{' } else { '[' }),
+            0x1B => Some(if shift { '}' } else { ']' }),
+            0x1E => Some(if shift { 'A' } else { 'a' }),
+            0x1F => Some(if shift { 'S' } else { 's' }),
+            0x20 => Some(if shift { 'D' } else { 'd' }),
+            0x21 => Some(if shift { 'F' } else { 'f' }),
+            0x22 => Some(if shift { 'G' } else { 'g' }),
+            0x23 => Some(if shift { 'H' } else { 'h' }),
+            0x24 => Some(if shift { 'J' } else { 'j' }),
+            0x25 => Some(if shift { 'K' } else { 'k' }),
+            0x26 => Some(if shift { 'L' } else { 'l' }),
+            0x27 => Some(if shift { ':' } else { ';' }),
+            0x28 => Some(if shift { '"' } else { '\'' }),
+            0x29 => Some(if shift { '~' } else { '`' }),
+            0x2B => Some(if shift { '|' } else { '\\' }),
+            0x2C => Some(if shift { 'Z' } else { 'z' }),
+            0x2D => Some(if shift { 'X' } else { 'x' }),
+            0x2E => Some(if shift { 'C' } else { 'c' }),
+            0x2F => Some(if shift { 'V' } else { 'v' }),
+            0x30 => Some(if shift { 'B' } else { 'b' }),
+            0x31 => Some(if shift { 'N' } else { 'n' }),
+            0x32 => Some(if shift { 'M' } else { 'm' }),
+            0x33 => Some(if shift { '<' } else { ',' }),
+            0x34 => Some(if shift { '>' } else { '.' }),
+            0x35 => Some(if shift { '?' } else { '/' }),
+            0x39 => Some(' '),
             _ => None,
         }
     }

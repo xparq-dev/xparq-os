@@ -1,10 +1,12 @@
-// XPARQ OS - Phase 02: Simple Kernel for Boot Verification
+// XPARQ OS - Phase 02: Simple Kernel for Boot Verification (with Phase 3 HAL integration)
 // Minimal kernel for Phase 2 boot verification
 
 #![no_std]
 #![no_main]
 
-use core::panic::PanicInfo;
+use xparq_hal::DisplayDriver;
+use xparq_hal::InputDriver;
+use xparq_hal as hal;
 
 /// UART base address per architecture
 #[cfg(target_arch = "aarch64")]
@@ -183,8 +185,107 @@ pub extern "C" fn kernel_main() -> ! {
         uart_puts(boot_arch_label().as_bytes());
         uart_puts(b"...\n");
         uart_puts(b"XPARQ OS Kernel v0.1.0\n");
+        
+        // Phase 3: Initialize HAL display
+        #[cfg(target_arch = "x86_64")]
+        {
+            uart_puts(b"[XPARQ OS] Initializing VGA display...\n");
+            let mut vga_display = hal::x86_64::display::VgaTextDisplay::new();
+            if vga_display.init().is_ok() {
+                uart_puts(b"[XPARQ OS] VGA display initialized successfully!\n");
+                // Write a message to VGA text buffer
+                let message = b"XPARQ OS - Phase 3 HAL Initialized!";
+                vga_display.write_string(0, 0, message, 0x1F);
+                // Write second line
+                vga_display.write_string(0, 1, b"Welcome to XPARQ OS!", 0x0E);
+            } else {
+                uart_puts(b"[XPARQ OS] Failed to initialize VGA display\n");
+            }
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            uart_puts(b"[XPARQ OS] Initializing ARM64 framebuffer...\n");
+            // For QEMU virt, we'll assume a framebuffer at 0xFFFF0000 (example address)
+            let mut fb_display = hal::arm64::display::QemuFramebufferDisplay::new(
+                0xFFFF0000, // Example framebuffer address
+                800,        // Width
+                600,        // Height
+                800 * 4     // Stride (4 bytes per pixel)
+            );
+            if fb_display.init().is_ok() {
+                uart_puts(b"[XPARQ OS] ARM64 framebuffer initialized successfully!\n");
+            } else {
+                uart_puts(b"[XPARQ OS] Failed to initialize ARM64 framebuffer\n");
+            }
+        }
+
         uart_puts(b"[XPARQ OS] Kernel initialized.\n");
-        uart_puts(b"Entering main kernel loop\n");
+        
+        // Initialize keyboard (x86_64 only for now)
+        #[cfg(target_arch = "x86_64")]
+        {
+            uart_puts(b"[XPARQ OS] Initializing PS/2 keyboard...\n");
+            let mut keyboard = hal::x86_64::keyboard::Ps2Keyboard::new();
+            if keyboard.init().is_ok() {
+                uart_puts(b"[XPARQ OS] Keyboard initialized successfully!\n");
+                
+                // Main keyboard loop
+                uart_puts(b"[XPARQ OS] Waiting for keyboard input...\n");
+                let mut vga_display = hal::x86_64::display::VgaTextDisplay::new();
+                vga_display.init().ok();
+                let mut cursor_x = 0;
+                let mut cursor_y = 2;
+                
+                loop {
+                    if let Some(event) = keyboard.get_event() {
+                        if let hal::input::InputEventData::Key { keycode, modifiers, .. } = event.data {
+                            // Handle backspace
+                            if keycode == 0x0E {
+                                if cursor_x > 0 {
+                                    cursor_x -= 1;
+                                    vga_display.write_char(cursor_x, cursor_y, b' ', 0x1F);
+                                }
+                            }
+                            // Handle enter key
+                            else if keycode == 0x1C {
+                                cursor_x = 0;
+                                cursor_y += 1;
+                                if cursor_y >= 25 {
+                                    vga_display.scroll_up(0x1F);
+                                    cursor_y = 24;
+                                }
+                            }
+                            // Handle printable characters
+                            else if let Some(character) = hal::input::utils::keycode_to_char(keycode, modifiers) {
+                                if cursor_x < 80 {
+                                    vga_display.write_char(cursor_x, cursor_y, character as u8, 0x1F);
+                                    cursor_x += 1;
+                                } else {
+                                    cursor_x = 0;
+                                    cursor_y += 1;
+                                    if cursor_y >= 25 {
+                                        vga_display.scroll_up(0x1F);
+                                        cursor_y = 24;
+                                    }
+                                    vga_display.write_char(cursor_x, cursor_y, character as u8, 0x1F);
+                                    cursor_x += 1;
+                                }
+                            }
+                        }
+                    }
+                    
+                    #[cfg(target_arch = "x86_64")]
+                    unsafe {
+                        core::arch::asm!("cli; hlt", options(nomem, nostack));
+                    }
+                    #[cfg(not(target_arch = "x86_64"))]
+                    core::hint::spin_loop();
+                }
+            } else {
+                uart_puts(b"[XPARQ OS] Failed to initialize keyboard\n");
+            }
+        }
     }
     loop {
         #[cfg(target_arch = "x86_64")]
@@ -244,17 +345,7 @@ struct Arm64Stack([u8; STACK_SIZE]);
 #[link_section = ".bss.stack"]
 static mut STACK: Arm64Stack = Arm64Stack([0; STACK_SIZE]);
 
-/// Panic handler for kernel
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    unsafe {
-        uart_puts("KERNEL PANIC!".as_bytes());
-        uart_putc(b'\r'); uart_putc(b'\n');
-    }
-    loop {
-        core::hint::spin_loop();
-    }
-}
+
 
 
 // Global allocator placeholder
