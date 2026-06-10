@@ -16,6 +16,8 @@ This repository is currently in a foundation/prototype stage. The current source
 - Execution and structure plan: `docs/project-structure-plan.md`
 - Current status ledger: `docs/implementation-status.md`
 
+If you are an AI agent taking over this repository, read `docs/implementation-status.md` first. It contains the current boot status, authoritative paths, and the handoff notes for continuing work safely.
+
 If you are on Windows, use the PowerShell build scripts in `tools/`:
 
 - `tools/build-arm64.ps1`

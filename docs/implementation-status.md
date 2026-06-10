@@ -5,9 +5,9 @@ It is the source of truth for execution status and should be updated continuousl
 
 ## Current Stage
 
-- Program stage: Phase 1 complete in structure, Phase 2 partially in progress
+- Program stage: Phase 2 complete for boot verification, Phase 3 not started yet
 - Repository type: Architecture-first with multiple active prototypes
-- Risk level: Medium-High (duplicate ownership and entrypoint ambiguity)
+- Risk level: Medium (prototype code still exists, but boot path is now stable)
 
 ## Authoritative Paths (Current)
 
@@ -48,6 +48,18 @@ It is the source of truth for execution status and should be updated continuousl
 2. Experimental code must be clearly labeled `prototype` or moved under an experiments area.
 3. Any new roadmap claim must map to a real path and status in this file.
 4. If ownership changes, update this file in the same change set.
+
+## AI Handoff Note
+
+If you are an AI agent continuing work in this repository:
+
+1. Read this file first, then `docs/build-contract.md`, then `README.md`.
+2. The authoritative boot path is currently `kernel/src/main_simple.rs`.
+3. ARM64 and x86-64 boot verification both pass in QEMU.
+4. Windows PowerShell scripts in `tools/` are the canonical build entrypoints on this machine.
+5. `x86_64` runtime uses `build/x86-64/disk.img`, not `kernel.bin` directly.
+6. Phase 3 should start from `hal/` scaffolding, not from rewriting the boot path again.
+7. If you change ownership or authoritative paths, update this file in the same commit.
 
 ## Weekly Update Template
 
