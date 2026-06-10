@@ -10,7 +10,8 @@ Set-Location $RepoRoot
 # Convert kernel to binary
 $rustc = & rustup which rustc
 $dir = Split-Path $rustc
-$objcopy = Join-Path $dir "llvm-objcopy.exe"
+$toolchainDir = Split-Path $dir
+$objcopy = (Get-ChildItem -Path $toolchainDir -Filter "llvm-objcopy.exe" -Recurse | Select-Object -First 1).FullName
 
 Write-Host "Converting kernel using: $objcopy"
 $kernelElf = "target\x86_64-unknown-none\release\xparq_kernel"

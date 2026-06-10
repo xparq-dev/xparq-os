@@ -30,7 +30,7 @@ arrayvec = { version = "0.7", default-features = false }
 
 # Architecture-specific dependencies
 aarch64-cpu = "9.4"
-x86_64 = "0.14"
+x86_64 = { version = "0.14", default-features = false }
 uefi = "0.26"
 
 [profile.dev]

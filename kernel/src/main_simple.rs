@@ -3,7 +3,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(alloc_error_handler)]
 
 use core::panic::PanicInfo;
 
@@ -13,12 +12,34 @@ const UART_BASE: usize = 0x09000000; // PL011 on QEMU virt
 #[cfg(target_arch = "x86_64")]
 const UART_BASE: usize = 0x03F8;     // COM1 on x86
 
+#[cfg(target_arch = "x86_64")]
+unsafe fn inb(port: u16) -> u8 {
+    let value: u8;
+    core::arch::asm!("in al, dx", out("al") value, in("dx") port, options(nomem, nostack, preserves_flags));
+    value
+}
+
+#[cfg(target_arch = "x86_64")]
+unsafe fn outb(port: u16, value: u8) {
+    core::arch::asm!("out dx, al", in("dx") port, in("al") value, options(nomem, nostack, preserves_flags));
+}
+
 /// Write a single byte to UART (blocking)
 unsafe fn uart_putc(c: u8) {
-    let uart = UART_BASE as *mut u8;
-    // Wait for UART transmit holding register empty
-    while (*uart.add(5) & 0x20) == 0 {}
-    *uart = c;
+    #[cfg(target_arch = "aarch64")]
+    {
+        let uart = UART_BASE as *mut u8;
+        // Wait for UART transmit holding register empty
+        while (*uart.add(5) & 0x20) == 0 {}
+        *uart = c;
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    {
+        // Wait for UART transmit holding register empty (LSR bit 5 at port UART_BASE + 5)
+        while (inb((UART_BASE + 5) as u16) & 0x20) == 0 {}
+        outb(UART_BASE as u16, c);
+    }
 }
 
 /// Write a string slice to UART
@@ -44,26 +65,7 @@ macro_rules! println_str {
         }
     }};
 }
-            }
-        }
-        
-        #[cfg(target_arch = "x86_64")]
-        {
-            // x86_64 serial output - Phase 1: Simple hardcoded messages
-            if false {
-                // Write to COM1 at 0x3F8
-                let com1 = 0x3F8 as *mut u8;
-                unsafe {
-                    // Wait for UART to be ready
-                    while *com1.add(5) & 0x20 == 0 {}
-                    *com1 = b'K'; // Simple test output
-                }
-            }
-        }
-    };
-}
 
-use core::panic::PanicInfo;
 
 /// Boot information structure passed from bootloader
 #[derive(Debug)]
@@ -118,51 +120,34 @@ pub struct ArchBootInfo {
 
 /// Kernel main function - called from bootloader
 #[no_mangle]
-pub extern "C" fn kernel_main(boot_info: &BootInfo) -> ! {
-    // Print architecture-specific boot message
-    #[cfg(target_arch = "aarch64")]
+pub extern "C" fn kernel_main() -> ! {
     unsafe {
-        uart_puts("[XPARQ OS] Booting on AArch64...".as_bytes());
-        uart_putc(b'\n'); uart_putc(b'\r');
+        uart_puts(b"[XPARQ OS] Booting on x86-64...\n\r");
+        uart_puts(b"XPARQ OS Kernel v0.1.0\n\r");
+        uart_puts(b"[XPARQ OS] Kernel initialized\n\r");
+        uart_puts(b"Entering main kernel loop\n\r");
     }
-    
-    #[cfg(target_arch = "x86_64")]
-    unsafe {
-        uart_puts("[XPARQ OS] Booting on x86-64...".as_bytes());
-        uart_putc(b'\n'); uart_putc(b'\r');
-    }
-    
-    unsafe {
-        uart_puts("XPARQ OS Kernel v0.1.0".as_bytes());
-        uart_putc(b'\n'); uart_putc(b'\r');
-        uart_puts("Bootloader: ".as_bytes());
-        uart_puts(boot_info.arch_specific.bootloader_brand.as_bytes());
-        uart_putc(b'\n'); uart_putc(b'\r');
-        uart_puts("Memory regions: ".as_bytes());
-        // Simple number printing (count up to 9)
-        let count = boot_info.memory_regions.len();
-        if count < 10 {
-            uart_putc(b'0' + count as u8);
-        }
-        uart_putc(b'\n'); uart_putc(b'\r');
-        
-        if let Some(_fb) = boot_info.framebuffer {
-            uart_puts("Framebuffer: 1024x768 @ 0x".as_bytes());
-            // simplified - just print marker
-        }
-        
-        uart_puts("[XPARQ OS] Kernel initialized".as_bytes());
-        uart_putc(b'\n'); uart_putc(b'\r');
-        uart_puts("Entering main kernel loop".as_bytes());
-        uart_putc(b'\n'); uart_putc(b'\r');
-    }
-    
-    // Main kernel loop
     loop {
-        // Phase 1: Simple infinite loop
-        // Phase 2: Implement proper kernel scheduling
+        core::hint::spin_loop();
     }
 }
+
+#[cfg(target_arch = "x86_64")]
+#[no_mangle]
+#[link_section = ".text.init"]
+#[unsafe(naked)]
+pub unsafe extern "C" fn _start() -> ! {
+    core::arch::naked_asm!(
+        "lea rsp, [rip + STACK + 16384]",
+        "call {kernel_main}",
+        kernel_main = sym kernel_main,
+    );
+}
+
+#[cfg(target_arch = "x86_64")]
+#[no_mangle]
+#[link_section = ".bss.stack"]
+static mut STACK: [u8; 16384] = [0; 16384];
 
 /// Panic handler for kernel
 #[panic_handler]
@@ -176,17 +161,6 @@ fn panic(_info: &PanicInfo) -> ! {
     }
 }
 
-// Dummy allocator for Phase 1
-#[alloc_error_handler]
-fn alloc_error(_layout: core::alloc::Layout) -> ! {
-    unsafe {
-        uart_puts("Allocation failed!".as_bytes());
-        uart_putc(b'\n'); uart_putc(b'\r');
-    }
-    loop {
-        core::hint::spin_loop();
-    }
-}
 
 // Global allocator placeholder
 #[global_allocator]

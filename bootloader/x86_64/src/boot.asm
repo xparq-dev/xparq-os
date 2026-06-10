@@ -18,34 +18,20 @@ start:
     mov dl,[boot_drive]
     int 0x13
     jc error
-    
     ; Load kernel using CHS (16 sectors, cylinder 0, head 0, sector 2)
     mov ax,0x1000        ; ES = 0x1000
     mov es,ax
     xor bx,bx            ; offset 0
     mov ah,0x02          ; read sectors
-    mov al,16            ; sector count
+    mov al,4             ; sector count = 4 (2048 bytes)
     mov ch,0             ; cylinder 0
     mov cl,2             ; sector 2 (1-indexed)
     mov dh,0             ; head 0
     mov dl,[boot_drive]
     int 0x13
     jc error
-    
-    ; Print 'L' for loaded via UART? but we use BIOS still
-    ; We'll skip extra prints to save space
 
-    ; DAP: read 16 sectors from LBA 1 to 0x1000:0x0000
-    mov word [dap_cnt],16
-    mov word [dap_off],0
-    mov word [dap_seg],0x1000
-    mov dword [dap_lba],1
-    mov dword [dap_lba+4],0
-    mov ah,0x42
-    mov si,dap
-    mov dl,[boot_drive]
-    int 0x13
-    jc error
+
 
     ; A20 via BIOS
     mov ax,0x2401
@@ -83,6 +69,7 @@ pmode:
     ; PDP at 0x7100: entry 0 → PD at 0x7200
     mov edi,0x7100
     xor eax,eax
+    mov ecx,0x400
     rep stosd
     mov dword [0x7100],0x7200|3
 
@@ -139,11 +126,14 @@ lmode:
     mov al, 'J'
     mov dx, 0x3F8
     out dx, al
-    jmp 0x10060           ; jump to kernel entry              ; kernel entry
+    jmp 0x10000           ; jump to kernel entry              ; kernel entry
 
 error:
     mov si,msg_err
     call print
+    mov al, 'E'
+    mov dx, 0x3F8
+    out dx, al
     cli
     hlt
 
@@ -178,15 +168,33 @@ uart_putc:
 ; -------------------------------------
 msg_err   db 'E',0
 
-; GDT (null, code32, data32, code64) - 4 entries = 32 bytes
+; GDT (null, code32, data32, code64)
 gdt_start:
-    dq 0                    ; null
+    dq 0                    ; null descriptor (8 bytes)
+
     ; code32: base=0 limit=4GB exec/read, gran=1, 32-bit
-    dw 0xFFFF,0,0,0x9A,0xCF,0
+    dw 0xFFFF
+    dw 0
+    db 0
+    db 0x9A
+    db 0xCF
+    db 0
+
     ; data32: base=0 limit=4GB read/write, gran=1
-    dw 0xFFFF,0,0,0x92,0xCF,0
-    ; code64: base=0, L=1
-    dw 0,0,0,0x9A,0x20,0
+    dw 0xFFFF
+    dw 0
+    db 0
+    db 0x92
+    db 0xCF
+    db 0
+
+    ; code64: base=0 exec/read, L=1 (64-bit)
+    dw 0
+    dw 0
+    db 0
+    db 0x9A
+    db 0x20
+    db 0
 gdt_end:
 
 gdt_desc:
