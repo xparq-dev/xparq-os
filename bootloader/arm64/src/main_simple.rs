@@ -3,7 +3,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(alloc_error_handler)]
 
 // Simple println macro for no_std debugging
 macro_rules! println {
@@ -191,15 +190,6 @@ fn panic(info: &PanicInfo) -> ! {
 }
 
 // Only one panic handler allowed per crate
-
-// Dummy allocator for Phase 1
-#[alloc_error_handler]
-fn alloc_error(_layout: core::alloc::Layout) -> ! {
-    println!("Allocation failed!");
-    loop {
-        core::hint::spin_loop();
-    }
-}
 
 // Global allocator placeholder
 #[global_allocator]

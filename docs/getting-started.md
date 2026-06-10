@@ -9,6 +9,7 @@ This guide provides step-by-step instructions for setting up the development env
 
 ### System Requirements
 - **OS**: Ubuntu 24.04 LTS (recommended) or other Linux distribution
+- **Windows**: Supported through the PowerShell build scripts in `tools/`
 - **CPU**: x86-64 processor with virtualization support
 - **RAM**: 8GB minimum, 16GB recommended
 - **Storage**: 20GB free disk space
@@ -115,6 +116,22 @@ make clean
 make help
 ```
 
+### Using PowerShell on Windows
+
+Canonical Windows build scripts:
+
+```powershell
+# Build and boot test x86-64
+powershell -ExecutionPolicy Bypass -File .\tools\build-x86_64.ps1
+
+# Build and boot test ARM64
+powershell -ExecutionPolicy Bypass -File .\tools\build-arm64.ps1
+
+# Build only, skip QEMU
+powershell -ExecutionPolicy Bypass -File .\tools\build-x86_64.ps1 --no-test
+powershell -ExecutionPolicy Bypass -File .\tools\build-arm64.ps1 --no-test
+```
+
 ### Manual Build Process
 
 #### ARM64 Target
@@ -122,7 +139,7 @@ make help
 ```bash
 # Canonical script output:
 # build/arm64/kernel.bin and build/arm64/bootloader.bin
-./tools/build-arm64.sh --no-test
+powershell -ExecutionPolicy Bypass -File .\tools\build-arm64.ps1 --no-test
 ```
 
 #### x86-64 Target
@@ -130,7 +147,7 @@ make help
 ```bash
 # Canonical script output:
 # build/x86-64/kernel.bin and build/x86-64/bootloader.bin
-./tools/build-x86_64.sh --no-test
+powershell -ExecutionPolicy Bypass -File .\tools\build-x86_64.ps1 --no-test
 ```
 
 ## Running on QEMU
@@ -163,9 +180,13 @@ Expected output:
 make run-x86_64
 
 # Manual command
+# Windows canonical flow uses the generated disk image:
 qemu-system-x86_64 \
+  -drive format=raw,file=build/x86-64/disk.img \
+  -boot order=c \
   -nographic \
-  -kernel build/x86-64/kernel.bin
+  -no-reboot \
+  -m 128M
 ```
 
 Expected output:

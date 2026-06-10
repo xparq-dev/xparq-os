@@ -59,6 +59,23 @@ check_dependencies() {
         print_error "Cargo not found. Please install Cargo."
         exit 1
     fi
+
+    # Check NASM
+    if ! command -v nasm &> /dev/null; then
+        print_error "NASM not found. Please install NASM."
+        exit 1
+    fi
+
+    # Check llvm-objcopy
+    if ! command -v llvm-objcopy &> /dev/null; then
+        print_error "llvm-objcopy not found. Please install rust-llvm tools."
+        exit 1
+    fi
+
+    if ! command -v python3 &> /dev/null; then
+        print_error "python3 not found. Please install Python 3."
+        exit 1
+    fi
     
     # Check QEMU for testing
     if ! command -v qemu-system-x86_64 &> /dev/null; then
@@ -106,38 +123,65 @@ build_x86_64() {
         cargo build --target "$X86_64_TARGET" --profile "$BUILD_TYPE" --package xparq-kernel --quiet
     fi
     
-    # Build bootloader
-    if [ "$VERBOSE" = true ]; then
-        cargo build --target "$X86_64_TARGET" --profile "$BUILD_TYPE" --package xparq-bootloader-x86_64
-    else
-        cargo build --target "$X86_64_TARGET" --profile "$BUILD_TYPE" --package xparq-bootloader-x86_64 --quiet
+    # Resolve kernel artifact and convert to raw binary.
+    local kernel_elf="target/$X86_64_TARGET/$BUILD_TYPE/xparq_kernel"
+    if [ ! -f "$kernel_elf" ]; then
+        kernel_elf="target/$X86_64_TARGET/$BUILD_TYPE/libxparq_kernel.a"
     fi
-    
-    # Resolve artifacts to build directory.
-    # Prefer runnable kernel binary; keep staticlib fallback for prototype builds.
-    local kernel_file="target/$X86_64_TARGET/$BUILD_TYPE/xparq_kernel"
-    if [ ! -f "$kernel_file" ]; then
-        kernel_file="target/$X86_64_TARGET/$BUILD_TYPE/libxparq_kernel.a"
+    if [ ! -f "$kernel_elf" ]; then
+        print_error "x86_64 kernel artifact not found"
+        return 1
     fi
-    local bootloader_file="target/$X86_64_TARGET/$BUILD_TYPE/xparq-bootloader-x86_64"
-    if [ ! -f "$bootloader_file" ]; then
-        bootloader_file="target/$X86_64_TARGET/$BUILD_TYPE/libxparq_bootloader_x86_64.a"
+
+    local bootloader_asm="$PROJECT_ROOT/bootloader/x86_64/src/simple_boot.asm"
+    if [ ! -f "$bootloader_asm" ]; then
+        print_error "Bootloader source not found: $bootloader_asm"
+        return 1
     fi
-    
+
+    llvm-objcopy -O binary "$kernel_elf" "$x86_64_build_dir/kernel.bin"
+    nasm -f bin "$bootloader_asm" -o "$x86_64_build_dir/bootloader.bin"
+
+    local kernel_file="$x86_64_build_dir/kernel.bin"
+    local bootloader_file="$x86_64_build_dir/bootloader.bin"
+
     if [ -f "$kernel_file" ]; then
-        cp "$kernel_file" "$x86_64_build_dir/kernel.bin"
         print_success "x86_64 kernel built: $x86_64_build_dir/kernel.bin"
     else
         print_error "x86_64 kernel build failed"
         return 1
     fi
-    
+
     if [ -f "$bootloader_file" ]; then
-        cp "$bootloader_file" "$x86_64_build_dir/bootloader.bin"
         print_success "x86_64 bootloader built: $x86_64_build_dir/bootloader.bin"
     else
-        print_warning "x86_64 bootloader build failed"
+        print_error "x86_64 bootloader build failed"
+        return 1
     fi
+
+    # Pad kernel to 16 sectors so the bootloader load window stays valid.
+    local kernel_size
+    kernel_size=$(wc -c < "$kernel_file")
+    local sector_size=512
+    local min_kernel_sectors=16
+    local kernel_sectors=$(( (kernel_size + sector_size - 1) / sector_size ))
+    if [ "$kernel_sectors" -lt "$min_kernel_sectors" ]; then
+        kernel_sectors="$min_kernel_sectors"
+    fi
+
+    local padded_kernel="$x86_64_build_dir/kernel.padded.bin"
+    python3 - "$kernel_file" "$padded_kernel" "$kernel_sectors" <<'PY'
+import pathlib, sys
+kernel = pathlib.Path(sys.argv[1]).read_bytes()
+out = pathlib.Path(sys.argv[2])
+sectors = int(sys.argv[3])
+size = sectors * 512
+out.write_bytes(kernel + b"\x00" * (size - len(kernel)))
+PY
+
+    cat "$bootloader_file" "$padded_kernel" > "$x86_64_build_dir/disk.img"
+    rm -f "$padded_kernel"
+    print_success "x86-64 disk image built: $x86_64_build_dir/disk.img"
 }
 
 # Test x86_64 boot
@@ -145,10 +189,10 @@ test_x86_64_boot() {
     print_info "Testing x86_64 boot..."
     
     local x86_64_build_dir="$BUILD_DIR/x86-64"
-    local kernel_file="$x86_64_build_dir/kernel.bin"
+    local disk_image="$x86_64_build_dir/disk.img"
     
-    if [ ! -f "$kernel_file" ]; then
-        print_error "x86_64 kernel not found. Build first."
+    if [ ! -f "$disk_image" ]; then
+        print_error "x86_64 disk image not found. Build first."
         return 1
     fi
     
@@ -156,12 +200,11 @@ test_x86_64_boot() {
     
     # Run QEMU with configuration to capture boot messages
     timeout 30s qemu-system-x86_64 \
-        -machine q35 \
-        -cpu qemu64 \
-        -m 512M \
+        -drive format=raw,file="$disk_image" \
+        -boot order=c \
         -nographic \
-        -kernel "$kernel_file" \
-        -no-reboot 2>&1 | tee "$x86_64_build_dir/boot.log" || true
+        -no-reboot \
+        -m 128M 2>&1 | tee "$x86_64_build_dir/boot.log" || true
     
     # Check for expected boot messages
     if grep -q "\[XPARQ OS\] Booting on x86-64..." "$x86_64_build_dir/boot.log"; then

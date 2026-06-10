@@ -2,13 +2,6 @@
 # Phase 02: Build and Boot Verification
 # Customized build script for ARM64 architecture with boot verification
 
-# Colors for output
-$RED = "`e[0;31m"
-$GREEN = "`e[0;32m"
-$YELLOW = "`e[1;33m"
-$BLUE = "`e[0;34m"
-$NC = "`e[0m"
-
 # Project configuration
 $PROJECT_NAME = "xparq-os"
 $PROJECT_ROOT = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
@@ -24,25 +17,43 @@ $VERBOSE = $false
 $CLEAN = $false
 $TEST = $true
 
+function Resolve-QemuArm64 {
+    $cmd = Get-Command qemu-system-aarch64 -ErrorAction SilentlyContinue
+    if ($cmd) {
+        return $cmd.Source
+    }
+
+    $fallback = "C:\Program Files\qemu\qemu-system-aarch64.exe"
+    if (Test-Path $fallback) {
+        return $fallback
+    }
+
+    return $null
+}
+
+function Stop-RunningQemuArm64 {
+    Get-Process qemu-system-aarch64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
 # Print colored output
 function Write-Info {
     param([string]$Message)
-    Write-Host "${BLUE}[INFO]${NC} $Message"
+    Write-Host "[INFO] $Message" -ForegroundColor Blue
 }
 
 function Write-Success {
     param([string]$Message)
-    Write-Host "${GREEN}[SUCCESS]${NC} $Message"
+    Write-Host "[SUCCESS] $Message" -ForegroundColor Green
 }
 
 function Write-Warning {
     param([string]$Message)
-    Write-Host "${YELLOW}[WARNING]${NC} $Message"
+    Write-Host "[WARNING] $Message" -ForegroundColor Yellow
 }
 
 function Write-Error {
     param([string]$Message)
-    Write-Host "${RED}[ERROR]${NC} $Message"
+    Write-Host "[ERROR] $Message" -ForegroundColor Red
 }
 
 # Check dependencies
@@ -62,7 +73,8 @@ function Test-Dependencies {
     }
     
     # Check QEMU for testing
-    if ($TEST -and -not (Get-Command qemu-system-aarch64 -ErrorAction SilentlyContinue)) {
+    $script:QemuArm64 = Resolve-QemuArm64
+    if ($TEST -and -not $script:QemuArm64) {
         Write-Error "QEMU for ARM64 not found. Please install QEMU."
         exit 1
     }
@@ -98,6 +110,8 @@ function Build-ARM64 {
     
     $arm64_build_dir = Join-Path $BUILD_DIR "arm64"
     New-Item -ItemType Directory -Force -Path $arm64_build_dir | Out-Null
+
+    Stop-RunningQemuArm64
     
     Set-Location $PROJECT_ROOT
     
@@ -152,21 +166,41 @@ function Test-ARM64Boot {
     }
     
     Write-Info "Running ARM64 kernel in QEMU..."
+
+    Stop-RunningQemuArm64
     
     # Run QEMU with configuration to capture boot messages
     $boot_log = Join-Path $arm64_build_dir "boot.log"
-    $qemu_cmd = @(
-        "timeout", "30", "qemu-system-aarch64",
-        "-machine", "virt",
-        "-cpu", "cortex-a72",
-        "-m", "512M",
-        "-nographic",
-        "-kernel", $kernel_file,
-        "-semihosting",
-        "-semihosting-config", "enable=on,target=native"
-    )
-    
-    & $qemu_cmd[0] $qemu_cmd[1..$qemu_cmd.Length] 2>&1 | Tee-Object -FilePath $boot_log
+
+    $stamp = Get-Date -Format "yyyyMMddHHmmss"
+    $stdout_log = Join-Path $arm64_build_dir "boot.$stamp.stdout.log"
+    $stderr_log = Join-Path $arm64_build_dir "boot.$stamp.stderr.log"
+
+    $qemu_cmdline = "-machine virt -cpu cortex-a72 -m 512M -nographic -kernel `"$kernel_file`""
+
+    $proc = Start-Process -FilePath $script:QemuArm64 -ArgumentList $qemu_cmdline -PassThru -WindowStyle Hidden `
+        -RedirectStandardOutput $stdout_log -RedirectStandardError $stderr_log
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    while (-not $proc.HasExited -and [DateTime]::UtcNow -lt $deadline) {
+        Start-Sleep -Milliseconds 200
+        $proc.Refresh()
+    }
+
+    if (-not $proc.HasExited) {
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+        Write-Warning "QEMU timed out after 30 seconds"
+    }
+
+    $boot_output = @()
+    if (Test-Path $stdout_log) {
+        $boot_output += Get-Content $stdout_log
+    }
+    if (Test-Path $stderr_log) {
+        $boot_output += Get-Content $stderr_log
+    }
+    $boot_output | Set-Content $boot_log
+    $boot_output | ForEach-Object { Write-Host $_ }
     
     # Check for expected boot messages
     if (Select-String -Path $boot_log -Pattern "\[XPARQ OS\] Booting on AArch64..." -Quiet) {

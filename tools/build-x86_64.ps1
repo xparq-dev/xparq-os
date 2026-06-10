@@ -2,13 +2,6 @@
 # Phase 02: Build and Boot Verification
 # Customized build script for x86_64 architecture with boot verification
 
-# Colors for output
-$RED = "`e[0;31m"
-$GREEN = "`e[0;32m"
-$YELLOW = "`e[1;33m"
-$BLUE = "`e[0;34m"
-$NC = "`e[0m"
-
 # Project configuration
 $PROJECT_NAME = "xparq-os"
 $PROJECT_ROOT = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
@@ -24,25 +17,78 @@ $VERBOSE = $false
 $CLEAN = $false
 $TEST = $true
 
+function Resolve-QemuX86 {
+    $cmd = Get-Command qemu-system-x86_64 -ErrorAction SilentlyContinue
+    if ($cmd) {
+        return $cmd.Source
+    }
+
+    $fallback = "C:\Program Files\qemu\qemu-system-x86_64.exe"
+    if (Test-Path $fallback) {
+        return $fallback
+    }
+
+    return $null
+}
+
+function Resolve-Nasm {
+    $cmd = Get-Command nasm -ErrorAction SilentlyContinue
+    if ($cmd) {
+        return $cmd.Source
+    }
+
+    $fallback = Join-Path $PROJECT_ROOT "third_party\nasm\nasm-2.16.03\nasm.exe"
+    if (Test-Path $fallback) {
+        return $fallback
+    }
+
+    return $null
+}
+
+function Resolve-LlvmObjcopy {
+    $rustc = & rustup which rustc
+    if (-not $rustc) {
+        return $null
+    }
+
+    $rustcDir = Split-Path $rustc
+    $candidate = Join-Path $rustcDir "llvm-objcopy.exe"
+    if (Test-Path $candidate) {
+        return $candidate
+    }
+
+    $toolchainRoot = Split-Path $rustcDir -Parent
+    $found = Get-ChildItem -Path $toolchainRoot -Recurse -Filter "llvm-objcopy.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($found) {
+        return $found.FullName
+    }
+
+    return $null
+}
+
+function Stop-RunningQemuX86 {
+    Get-Process qemu-system-x86_64 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
 # Print colored output
 function Write-Info {
     param([string]$Message)
-    Write-Host "${BLUE}[INFO]${NC} $Message"
+    Write-Host "[INFO] $Message" -ForegroundColor Blue
 }
 
 function Write-Success {
     param([string]$Message)
-    Write-Host "${GREEN}[SUCCESS]${NC} $Message"
+    Write-Host "[SUCCESS] $Message" -ForegroundColor Green
 }
 
 function Write-Warning {
     param([string]$Message)
-    Write-Host "${YELLOW}[WARNING]${NC} $Message"
+    Write-Host "[WARNING] $Message" -ForegroundColor Yellow
 }
 
 function Write-Error {
     param([string]$Message)
-    Write-Host "${RED}[ERROR]${NC} $Message"
+    Write-Host "[ERROR] $Message" -ForegroundColor Red
 }
 
 # Check dependencies
@@ -62,8 +108,21 @@ function Test-Dependencies {
     }
     
     # Check QEMU for testing
-    if ($TEST -and -not (Get-Command qemu-system-x86_64 -ErrorAction SilentlyContinue)) {
+    $script:QemuX86 = Resolve-QemuX86
+    if ($TEST -and -not $script:QemuX86) {
         Write-Error "QEMU for x86_64 not found. Please install QEMU."
+        exit 1
+    }
+
+    $script:Nasm = Resolve-Nasm
+    if (-not $script:Nasm) {
+        Write-Error "NASM not found. Please install NASM or keep the bundled third_party copy."
+        exit 1
+    }
+
+    $script:LlvmObjcopy = Resolve-LlvmObjcopy
+    if (-not $script:LlvmObjcopy) {
+        Write-Error "llvm-objcopy not found. Please install rust-llvm tools."
         exit 1
     }
     
@@ -98,48 +157,73 @@ function Build-x86_64 {
     
     $x86_64_build_dir = Join-Path $BUILD_DIR "x86-64"
     New-Item -ItemType Directory -Force -Path $x86_64_build_dir | Out-Null
+
+    Stop-RunningQemuX86
     
     Set-Location $PROJECT_ROOT
     
-    # Build kernel
+    # Build kernel ELF
     if ($VERBOSE) {
         cargo build --target $X86_64_TARGET --profile $BUILD_TYPE --package xparq-kernel
     } else {
         cargo build --target $X86_64_TARGET --profile $BUILD_TYPE --package xparq-kernel --quiet
     }
-    
-    # Build bootloader
-    if ($VERBOSE) {
-        cargo build --target $X86_64_TARGET --profile $BUILD_TYPE --package xparq-bootloader-x86_64
-    } else {
-        cargo build --target $X86_64_TARGET --profile $BUILD_TYPE --package xparq-bootloader-x86_64 --quiet
-    }
-    
-    # Resolve artifacts to build directory.
-    # Prefer runnable binaries; keep staticlib fallback for prototype variants.
-    $kernel_file = "target\$X86_64_TARGET\$BUILD_TYPE\xparq_kernel"
-    if (-not (Test-Path $kernel_file)) {
-        $kernel_file = "target\$X86_64_TARGET\$BUILD_TYPE\libxparq_kernel.a"
-    }
-    $bootloader_file = "target\$X86_64_TARGET\$BUILD_TYPE\xparq-bootloader-x86_64"
-    if (-not (Test-Path $bootloader_file)) {
-        $bootloader_file = "target\$X86_64_TARGET\$BUILD_TYPE\libxparq_bootloader_x86_64.a"
-    }
-    
-    if (Test-Path $kernel_file) {
-        Copy-Item $kernel_file (Join-Path $x86_64_build_dir "kernel.bin")
-        Write-Success "x86_64 kernel built: $(Join-Path $x86_64_build_dir "kernel.bin")"
-    } else {
-        Write-Error "x86_64 kernel build failed"
+
+    $kernel_elf = Join-Path $PROJECT_ROOT "target\$X86_64_TARGET\$BUILD_TYPE\xparq_kernel"
+    if (-not (Test-Path $kernel_elf)) {
+        Write-Error "x86_64 kernel ELF not found: $kernel_elf"
         return 1
     }
-    
-    if (Test-Path $bootloader_file) {
-        Copy-Item $bootloader_file (Join-Path $x86_64_build_dir "bootloader.bin")
-        Write-Success "x86_64 bootloader built: $(Join-Path $x86_64_build_dir "bootloader.bin")"
-    } else {
-        Write-Warning "x86_64 bootloader build failed"
+
+    & $script:LlvmObjcopy -O binary $kernel_elf (Join-Path $x86_64_build_dir "kernel.bin")
+    $kernel_file = Join-Path $x86_64_build_dir "kernel.bin"
+    if (-not (Test-Path $kernel_file)) {
+        Write-Error "x86_64 kernel binary conversion failed"
+        return 1
     }
+    Write-Success "x86_64 kernel built: $kernel_file"
+
+    # Build bootloader sector
+    $bootloader_asm = Join-Path $PROJECT_ROOT "bootloader\x86_64\src\simple_boot.asm"
+    if (-not (Test-Path $bootloader_asm)) {
+        Write-Error "Bootloader source not found: $bootloader_asm"
+        return 1
+    }
+
+    & $script:Nasm -f bin $bootloader_asm -o (Join-Path $x86_64_build_dir "bootloader.bin")
+    $bootloader_file = Join-Path $x86_64_build_dir "bootloader.bin"
+    if (-not (Test-Path $bootloader_file)) {
+        Write-Error "x86_64 bootloader build failed"
+        return 1
+    }
+    Write-Success "x86_64 bootloader built: $bootloader_file"
+
+    $kernelBytes = [IO.File]::ReadAllBytes($kernel_file)
+    $sectorSize = 512
+    $minKernelSectors = 16
+    $kernelSectors = [int][Math]::Ceiling($kernelBytes.Length / $sectorSize)
+    if ($kernelSectors -lt $minKernelSectors) {
+        $kernelSectors = $minKernelSectors
+    }
+    if ($kernelBytes.Length -gt ($minKernelSectors * $sectorSize)) {
+        Write-Warning "Kernel is larger than the bootloader load window (16 sectors); boot may fail."
+    }
+
+    $paddedKernel = New-Object byte[] ($kernelSectors * $sectorSize)
+    [Array]::Copy($kernelBytes, 0, $paddedKernel, 0, $kernelBytes.Length)
+    [IO.File]::WriteAllBytes($kernel_file, $paddedKernel)
+
+    $bootBytes = [IO.File]::ReadAllBytes($bootloader_file)
+    $diskImage = Join-Path $x86_64_build_dir "disk.img"
+    $stream = New-Object System.IO.MemoryStream
+    try {
+        $stream.Write($bootBytes, 0, $bootBytes.Length)
+        $stream.Write($paddedKernel, 0, $paddedKernel.Length)
+        [IO.File]::WriteAllBytes($diskImage, $stream.ToArray())
+    } finally {
+        $stream.Dispose()
+    }
+    Write-Success "x86_64 disk image built: $diskImage"
 }
 
 # Test x86_64 boot
@@ -155,20 +239,51 @@ function Test-x86_64Boot {
     }
     
     Write-Info "Running x86_64 kernel in QEMU..."
+
+    Stop-RunningQemuX86
     
     # Run QEMU with configuration to capture boot messages
     $boot_log = Join-Path $x86_64_build_dir "boot.log"
-    $qemu_cmd = @(
-        "timeout", "30", "qemu-system-x86_64",
-        "-machine", "q35",
-        "-cpu", "qemu64",
-        "-m", "512M",
+    $disk_image = Join-Path $x86_64_build_dir "disk.img"
+    if (-not (Test-Path $disk_image)) {
+        Write-Error "x86_64 disk image not found. Build first."
+        return 1
+    }
+    $qemu_args = @(
+        "-drive", "format=raw,file=$disk_image",
+        "-boot", "order=c",
         "-nographic",
-        "-kernel", $kernel_file,
-        "-no-reboot"
+        "-no-reboot",
+        "-m", "128M"
     )
-    
-    & $qemu_cmd[0] $qemu_cmd[1..$qemu_cmd.Length] 2>&1 | Tee-Object -FilePath $boot_log
+
+    $stamp = Get-Date -Format "yyyyMMddHHmmss"
+    $stdout_log = Join-Path $x86_64_build_dir "boot.$stamp.stdout.log"
+    $stderr_log = Join-Path $x86_64_build_dir "boot.$stamp.stderr.log"
+
+    $proc = Start-Process -FilePath $script:QemuX86 -ArgumentList $qemu_args -PassThru -WindowStyle Hidden `
+        -RedirectStandardOutput $stdout_log -RedirectStandardError $stderr_log
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    while (-not $proc.HasExited -and [DateTime]::UtcNow -lt $deadline) {
+        Start-Sleep -Milliseconds 200
+        $proc.Refresh()
+    }
+
+    if (-not $proc.HasExited) {
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+        Write-Warning "QEMU timed out after 30 seconds"
+    }
+
+    $boot_output = @()
+    if (Test-Path $stdout_log) {
+        $boot_output += Get-Content $stdout_log
+    }
+    if (Test-Path $stderr_log) {
+        $boot_output += Get-Content $stderr_log
+    }
+    $boot_output | Set-Content $boot_log
+    $boot_output | ForEach-Object { Write-Host $_ }
     
     # Check for expected boot messages
     if (Select-String -Path $boot_log -Pattern "\[XPARQ OS\] Booting on x86-64..." -Quiet) {

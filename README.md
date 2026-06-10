@@ -2,6 +2,27 @@
 
 Multi-architecture operating system built on Zircon kernel with ARM and x86-64 support.
 
+## Start Here
+
+This repository is currently in a foundation/prototype stage. The current source of truth is:
+
+- Workspace root: `Cargo.toml`
+- Kernel entrypoint: `kernel/src/main_simple.rs`
+- Kernel crate: `kernel/`
+- HAL crate: `hal/`
+- FIDL interfaces: `interfaces/fidl/`
+- Bootloader crates: `bootloader/arm64/`, `bootloader/x86_64/`
+- Build artifact contract: `docs/build-contract.md`
+- Execution and structure plan: `docs/project-structure-plan.md`
+- Current status ledger: `docs/implementation-status.md`
+
+If you are on Windows, use the PowerShell build scripts in `tools/`:
+
+- `tools/build-arm64.ps1`
+- `tools/build-x86_64.ps1`
+
+If you are on a Unix-like environment, `make` targets are available as wrappers around the same build contract.
+
 ## Overview
 
 XPARQ OS is a modern operating system that combines the security and capabilities of Zircon kernel with cross-device synchronization and premium user experience.
@@ -57,17 +78,26 @@ Prototype raw-boot helpers (non-canonical for kernel build contract) remain in `
 
 ### Build and Run
 
-#### ARM64 (QEMU)
+#### Windows
+
+```bash
+powershell -ExecutionPolicy Bypass -File .\tools\build-x86_64.ps1
+```
+
+#### ARM64 (PowerShell)
+
+```bash
+powershell -ExecutionPolicy Bypass -File .\tools\build-arm64.ps1
+```
+
+#### Unix-like environments
 
 ```bash
 make run-arm64
-```
-
-#### x86-64 (QEMU)
-
-```bash
 make run-x86_64
 ```
+
+For x86-64, the runtime image is `build/x86-64/disk.img`.
 
 ### Build Targets
 
@@ -120,6 +150,7 @@ make run-x86_64
 
 ## Authoritative Paths (Current)
 
+- Workspace root: `Cargo.toml`
 - Kernel entry crate: `kernel/`
 - HAL crate: `hal/`
 - Interface crate: `interfaces/fidl/`
