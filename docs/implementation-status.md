@@ -62,9 +62,23 @@ If you are an AI agent continuing work in this repository:
 6. Phase 3 should start from `hal/` scaffolding, not from rewriting the boot path again.
 7. If you change ownership or authoritative paths, update this file in the same commit.
 
-## Weekly Update Template
+## Weekly Update (2026-06-10)
 
 - What was stabilized this week:
+  - Created stable HAL architecture with x86_64/arm64 specific modules
+  - Implemented VGA Text Mode display driver with full functionality (write, clear, scroll)
+  - Implemented PS/2 keyboard and mouse drivers
+  - Integrated HAL with kernel boot path, including keyboard input handling
+
 - What moved from `stub` to `in-progress`:
+  - HAL display subsystem
+  - HAL input subsystem
+
 - What remains blocked:
+  - No USB HID drivers yet
+  - No PCIe bus enumeration
+  - No real GPU drivers
+
 - Next smallest executable step:
+  - Test the current implementation in QEMU using tools/windows/test-boot.ps1
+  - Improve PS/2 keyboard driver to properly handle shift modifiers
