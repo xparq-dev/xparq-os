@@ -18,48 +18,12 @@ macro_rules! println {
     };
 }
 
-// Core HAL modules
-pub mod display;
-pub mod input;
-pub mod power;
-pub mod storage;
-
-// Architecture-specific modules
-#[cfg(target_arch = "aarch64")]
-pub mod arm64;
-
-#[cfg(target_arch = "x86_64")]
-pub mod x86_64;
-
-// Re-export main traits for easy access
-pub use display::{DisplayDriver, DisplayInfo, DisplayMode, PixelFormat};
-pub use input::{InputDriver, InputEvent, InputDeviceType, InputEventKind};
-pub use power::{PowerDriver, PowerState, BatteryInfo, PowerPolicy};
-pub use storage::{StorageDriver, StorageDevice, StorageInfo, StorageError};
-
-/// HAL initialization
-pub fn init() -> Result<(), HalError> {
-    println!("Initializing HAL...");
-    
-    // Initialize display subsystem
-    display::init()?;
-    
-    // Initialize input subsystem
-    input::init()?;
-    
-    // Initialize power subsystem
-    power::init()?;
-    
-    // Initialize storage subsystem
-    storage::init()?;
-    
-    println!("HAL initialized");
-    Ok(())
-}
-
 /// HAL errors
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum HalError {
+    #[default]
+    /// Hardware failure
+    HardwareFailure,
     /// Device not found
     DeviceNotFound,
     /// Unsupported operation
@@ -70,86 +34,8 @@ pub enum HalError {
     ResourceExhausted,
     /// Permission denied
     PermissionDenied,
-    /// Hardware failure
-    HardwareFailure,
     /// Timeout
     Timeout,
-}
-
-// Error type conversions
-impl From<crate::display::DisplayError> for HalError {
-    fn from(_error: crate::display::DisplayError) -> Self {
-        HalError::HardwareFailure
-    }
-}
-
-impl From<crate::input::InputError> for HalError {
-    fn from(_error: crate::input::InputError) -> Self {
-        HalError::HardwareFailure
-    }
-}
-
-impl From<crate::power::PowerError> for HalError {
-    fn from(_error: crate::power::PowerError) -> Self {
-        HalError::HardwareFailure
-    }
-}
-
-impl From<crate::storage::StorageError> for HalError {
-    fn from(_error: crate::storage::StorageError) -> Self {
-        HalError::HardwareFailure
-    }
-}
-
-// BitOr implementations for enum combinations
-impl core::ops::BitOr for SupportedArchitectures {
-    type Output = Self;
-    
-    fn bitor(self, rhs: Self) -> Self::Output {
-        Self {
-            arm64: self.arm64 || rhs.arm64,
-            x86_64: self.x86_64 || rhs.x86_64,
-        }
-    }
-}
-
-impl core::ops::BitOr for HalFeatures {
-    type Output = Self;
-    
-    fn bitor(self, rhs: Self) -> Self::Output {
-        Self {
-            display: self.display || rhs.display,
-            input: self.input || rhs.input,
-            power: self.power || rhs.power,
-            storage: self.storage || rhs.storage,
-            connectivity: self.connectivity || rhs.connectivity,
-            audio: self.audio || rhs.audio,
-            sensors: self.sensors || rhs.sensors,
-        }
-    }
-}
-
-/// HAL version information
-pub const HAL_VERSION: &str = "0.1.0";
-pub const HAL_NAME: &str = "XPARQ Hardware Abstraction Layer";
-
-/// Get HAL information
-pub fn get_hal_info() -> HalInfo {
-    HalInfo {
-        name: HAL_NAME,
-        version: HAL_VERSION,
-        supported_architectures: SupportedArchitectures::ARM64 | SupportedArchitectures::X86_64,
-        features: HalFeatures::DISPLAY | HalFeatures::INPUT | HalFeatures::POWER | HalFeatures::STORAGE,
-    }
-}
-
-/// HAL information structure
-#[derive(Debug, Clone, Copy)]
-pub struct HalInfo {
-    pub name: &'static str,
-    pub version: &'static str,
-    pub supported_architectures: SupportedArchitectures,
-    pub features: HalFeatures,
 }
 
 /// Supported architectures
@@ -163,6 +49,17 @@ impl SupportedArchitectures {
     pub const ARM64: Self = Self { arm64: true, x86_64: false };
     pub const X86_64: Self = Self { arm64: false, x86_64: true };
     pub const BOTH: Self = Self { arm64: true, x86_64: true };
+}
+
+impl core::ops::BitOr for SupportedArchitectures {
+    type Output = Self;
+    
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self {
+            arm64: self.arm64 || rhs.arm64,
+            x86_64: self.x86_64 || rhs.x86_64,
+        }
+    }
 }
 
 /// HAL features
@@ -195,6 +92,121 @@ impl HalFeatures {
         audio: true, 
         sensors: true 
     };
+}
+
+impl core::ops::BitOr for HalFeatures {
+    type Output = Self;
+    
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self {
+            display: self.display || rhs.display,
+            input: self.input || rhs.input,
+            power: self.power || rhs.power,
+            storage: self.storage || rhs.storage,
+            connectivity: self.connectivity || rhs.connectivity,
+            audio: self.audio || rhs.audio,
+            sensors: self.sensors || rhs.sensors,
+        }
+    }
+}
+
+/// HAL information structure
+#[derive(Debug, Clone, Copy)]
+pub struct HalInfo {
+    pub name: &'static str,
+    pub version: &'static str,
+    pub supported_architectures: SupportedArchitectures,
+    pub features: HalFeatures,
+}
+
+/// HAL capabilities
+#[derive(Debug, Clone, Copy, Default)]
+pub struct HalCapabilities {
+    pub max_display_resolution: (u32, u32),
+    pub max_input_devices: usize,
+    pub max_storage_devices: usize,
+    pub power_management: bool,
+    pub hardware_acceleration: bool,
+    pub multi_touch: bool,
+    pub gesture_recognition: bool,
+}
+
+// Core HAL modules
+pub mod display;
+pub mod input;
+pub mod power;
+pub mod storage;
+
+// Architecture-specific modules
+#[cfg(target_arch = "aarch64")]
+pub mod arm64;
+
+#[cfg(target_arch = "x86_64")]
+pub mod x86_64;
+
+// Re-export main traits for easy access
+pub use display::{DisplayDriver, DisplayInfo, DisplayMode, PixelFormat};
+pub use input::{InputDriver, InputEvent, InputDeviceType, InputEventKind};
+pub use power::{PowerDriver, PowerState, BatteryInfo, PowerPolicy};
+pub use storage::{StorageDriver, StorageDevice, StorageInfo, StorageError};
+
+// Error type conversions
+impl From<crate::display::DisplayError> for HalError {
+    fn from(_error: crate::display::DisplayError) -> Self {
+        HalError::HardwareFailure
+    }
+}
+
+impl From<crate::input::InputError> for HalError {
+    fn from(_error: crate::input::InputError) -> Self {
+        HalError::HardwareFailure
+    }
+}
+
+impl From<crate::power::PowerError> for HalError {
+    fn from(_error: crate::power::PowerError) -> Self {
+        HalError::HardwareFailure
+    }
+}
+
+impl From<crate::storage::StorageError> for HalError {
+    fn from(_error: crate::storage::StorageError) -> Self {
+        HalError::HardwareFailure
+    }
+}
+
+/// HAL version information
+pub const HAL_VERSION: &str = "0.1.0";
+pub const HAL_NAME: &str = "XPARQ Hardware Abstraction Layer";
+
+/// Get HAL information
+pub fn get_hal_info() -> HalInfo {
+    HalInfo {
+        name: HAL_NAME,
+        version: HAL_VERSION,
+        supported_architectures: SupportedArchitectures::ARM64 | SupportedArchitectures::X86_64,
+        features: HalFeatures::DISPLAY | HalFeatures::INPUT | HalFeatures::POWER | HalFeatures::STORAGE,
+    }
+}
+
+/// HAL initialization
+pub fn init() -> Result<(), HalError> {
+    println!("Initializing HAL...");
+    
+    // Initialize display subsystem
+    display::init()?;
+    
+    // Initialize input subsystem
+    input::init()?;
+    
+    // Initialize power subsystem
+    power::init()?;
+    
+    // Initialize storage subsystem
+    storage::init()?;
+    
+    println!("HAL initialized");
+    Ok(())
 }
 
 /// Device manager for HAL
@@ -399,25 +411,7 @@ pub struct HalCapabilities {
     pub gesture_recognition: bool,
 }
 
-impl Default for HalCapabilities {
-    fn default() -> Self {
-        Self {
-            max_display_resolution: (1920, 1080),
-            max_input_devices: 16,
-            max_storage_devices: 8,
-            power_management: true,
-            hardware_acceleration: false,
-            multi_touch: true,
-            gesture_recognition: false,
-        }
-    }
-}
 
-impl Default for HalError {
-    fn default() -> Self {
-        Self::HardwareFailure
-    }
-}
 
 use core::panic::PanicInfo;
 

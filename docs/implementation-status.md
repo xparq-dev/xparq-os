@@ -81,4 +81,4 @@ If you are an AI agent continuing work in this repository:
 
 - Next smallest executable step:
   - Test the current implementation in QEMU using tools/windows/test-boot.ps1
-  - Improve PS/2 keyboard driver to properly handle shift modifiers
+  - ✅ Improved PS/2 keyboard driver to properly handle shift modifiers (Left/Right Shift, Caps Lock)

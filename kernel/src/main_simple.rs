@@ -7,6 +7,7 @@
 use xparq_hal::DisplayDriver;
 use xparq_hal::InputDriver;
 use xparq_hal as hal;
+use core::fmt::Write;
 
 /// UART base address per architecture
 #[cfg(target_arch = "aarch64")]
@@ -148,14 +149,7 @@ pub struct FramebufferInfo {
     pub width: u32,
     pub height: u32,
     pub stride: u32,
-    pub format: PixelFormat,
-}
-
-/// Pixel formats
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum PixelFormat {
-    Rgb32,
-    Bgr32,
+    pub format: hal::display::PixelFormat,
 }
 
 /// Architecture-specific boot information
@@ -193,11 +187,11 @@ pub extern "C" fn kernel_main() -> ! {
             let mut vga_display = hal::x86_64::display::VgaTextDisplay::new();
             if vga_display.init().is_ok() {
                 uart_puts(b"[XPARQ OS] VGA display initialized successfully!\n");
-                // Write a message to VGA text buffer
-                let message = b"XPARQ OS - Phase 3 HAL Initialized!";
-                vga_display.write_string(0, 0, message, 0x1F);
-                // Write second line
-                vga_display.write_string(0, 1, b"Welcome to XPARQ OS!", 0x0E);
+                // Use our improved VGA driver
+                vga_display.set_colors(hal::x86_64::display::VgaColor::White, hal::x86_64::display::VgaColor::Blue);
+                writeln!(&mut vga_display, "XPARQ OS - Phase 3 HAL Initialized!").unwrap();
+                writeln!(&mut vga_display, "Welcome to XPARQ OS!").unwrap();
+                writeln!(&mut vga_display, "Type something: ").unwrap();
             } else {
                 uart_puts(b"[XPARQ OS] Failed to initialize VGA display\n");
             }
@@ -227,50 +221,20 @@ pub extern "C" fn kernel_main() -> ! {
         {
             uart_puts(b"[XPARQ OS] Initializing PS/2 keyboard...\n");
             let mut keyboard = hal::x86_64::keyboard::Ps2Keyboard::new();
+            let mut vga_display = hal::x86_64::display::VgaTextDisplay::new();
+            vga_display.init().ok();
+            vga_display.set_cursor(0, 3);
+            
             if keyboard.init().is_ok() {
                 uart_puts(b"[XPARQ OS] Keyboard initialized successfully!\n");
-                
-                // Main keyboard loop
                 uart_puts(b"[XPARQ OS] Waiting for keyboard input...\n");
-                let mut vga_display = hal::x86_64::display::VgaTextDisplay::new();
-                vga_display.init().ok();
-                let mut cursor_x = 0;
-                let mut cursor_y = 2;
                 
                 loop {
                     if let Some(event) = keyboard.get_event() {
                         if let hal::input::InputEventData::Key { keycode, modifiers, .. } = event.data {
-                            // Handle backspace
-                            if keycode == 0x0E {
-                                if cursor_x > 0 {
-                                    cursor_x -= 1;
-                                    vga_display.write_char(cursor_x, cursor_y, b' ', 0x1F);
-                                }
-                            }
-                            // Handle enter key
-                            else if keycode == 0x1C {
-                                cursor_x = 0;
-                                cursor_y += 1;
-                                if cursor_y >= 25 {
-                                    vga_display.scroll_up(0x1F);
-                                    cursor_y = 24;
-                                }
-                            }
                             // Handle printable characters
-                            else if let Some(character) = hal::input::utils::keycode_to_char(keycode, modifiers) {
-                                if cursor_x < 80 {
-                                    vga_display.write_char(cursor_x, cursor_y, character as u8, 0x1F);
-                                    cursor_x += 1;
-                                } else {
-                                    cursor_x = 0;
-                                    cursor_y += 1;
-                                    if cursor_y >= 25 {
-                                        vga_display.scroll_up(0x1F);
-                                        cursor_y = 24;
-                                    }
-                                    vga_display.write_char(cursor_x, cursor_y, character as u8, 0x1F);
-                                    cursor_x += 1;
-                                }
+                            if let Some(character) = hal::input::utils::keycode_to_char(keycode, modifiers) {
+                                vga_display.write_char_at_cursor(character as u8);
                             }
                         }
                     }

@@ -122,8 +122,16 @@ impl InputDriver for Ps2Keyboard {
 
         // Update modifiers
         match keycode {
-            0x1C => {
+            0x2A => {
                 // Left Shift
+                if pressed {
+                    self.modifiers |= Modifiers::SHIFT;
+                } else {
+                    self.modifiers &= !Modifiers::SHIFT;
+                }
+            }
+            0x36 => {
+                // Right Shift
                 if pressed {
                     self.modifiers |= Modifiers::SHIFT;
                 } else {
@@ -144,6 +152,12 @@ impl InputDriver for Ps2Keyboard {
                     self.modifiers |= Modifiers::ALT;
                 } else {
                     self.modifiers &= !Modifiers::ALT;
+                }
+            }
+            0x3A => {
+                // Caps Lock (toggle on press)
+                if pressed {
+                    self.modifiers ^= Modifiers::CAPS_LOCK;
                 }
             }
             _ => {}
