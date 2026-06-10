@@ -66,19 +66,30 @@ If you are an AI agent continuing work in this repository:
 
 - What was stabilized this week:
   - Created stable HAL architecture with x86_64/arm64 specific modules
-  - Implemented VGA Text Mode display driver with full functionality (write, clear, scroll)
+  - Implemented VGA Text Mode display driver with full functionality (write, clear, scroll, cursor)
+  - Added mouse cursor support to VGA driver
+  - Integrated PS/2 mouse driver in kernel
   - Implemented PS/2 keyboard and mouse drivers
-  - Integrated HAL with kernel boot path, including keyboard input handling
+  - Integrated HAL with kernel boot path, including keyboard and mouse input handling
+  - Created dummy power driver for x86_64
+  - Created dummy storage driver for x86_64
+  - ✅ Improved PS/2 keyboard driver to properly handle shift modifiers (Left/Right Shift, Caps Lock)
 
 - What moved from `stub` to `in-progress`:
   - HAL display subsystem
   - HAL input subsystem
+  - HAL power subsystem
+  - HAL storage subsystem
 
 - What remains blocked:
   - No USB HID drivers yet
   - No PCIe bus enumeration
   - No real GPU drivers
+  - No actual bootable build yet (Rust not installed)
 
 - Next smallest executable step:
-  - Test the current implementation in QEMU using tools/windows/test-boot.ps1
-  - ✅ Improved PS/2 keyboard driver to properly handle shift modifiers (Left/Right Shift, Caps Lock)
+  - Install Rust toolchain
+  - Build XPARQ OS using build-and-test.ps1
+  - Test in QEMU using test-boot.ps1
+  - ✅ Added mouse cursor support to VGA display driver
+  - ✅ Added dummy power and storage drivers for x86_64
