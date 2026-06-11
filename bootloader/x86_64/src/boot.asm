@@ -95,16 +95,12 @@ start_after_bpb:
     mov byte [es:8], 'G'
     mov byte [es:9], 0x5F
 
-    ; Write "J" before jump
-    mov byte [es:10], 'J'
-    mov byte [es:11], 0x6F
-
     ; Protected mode
     mov eax, cr0
     or eax, 1
     mov cr0, eax
-    jmp short $+2  ; flush the prefetch queue
-    jmp 0x0008:pmode
+    jmp short $+2  ; flush prefetch
+    jmp 0x0008:0x7C00 + pmode - start_after_bpb
 
 [BITS 32]
 pmode:
