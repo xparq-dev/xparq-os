@@ -51,6 +51,9 @@ $qemuArgs = @(
     "-serial", "stdio"
     "-vga", "std"
     "-no-reboot"
+    "-no-shutdown"  # <-- Don't close when power off/reboot
+    "-D", "build/x86-64/qemu-log.txt"  # <-- Log what's happening
+    "-d", "int,guest_errors"
 )
 
 if ($Debug) {
@@ -60,4 +63,11 @@ if ($Debug) {
 
 Write-Host "Running: & '$qemu' $($qemuArgs -join ' ')"
 
-& $qemu @qemuArgs
+try {
+    & $qemu @qemuArgs
+} finally {
+    Write-Host ""
+    Write-Host "Press any key to close..."
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+}
+
