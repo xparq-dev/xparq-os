@@ -19,10 +19,10 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Building kernel and converting to flat binary..."
 & "$RepoRoot\tools\windows\make-flat-kernel.ps1"
 
-# Create disk image padded to 16KB (32 sectors) for BIOS compatibility
+# Create disk image padded to 32KB (64 sectors) for BIOS compatibility
 $bootloader = [System.IO.File]::ReadAllBytes("build\x86-64\bootloader.bin")
 $kernel = [System.IO.File]::ReadAllBytes("build\x86-64\kernel.bin")
-$targetSize = 16384
+$targetSize = 32768
 $combined = New-Object byte[] $targetSize
 [System.Array]::Copy($bootloader, 0, $combined, 0, $bootloader.Length)
 [System.Array]::Copy($kernel, 0, $combined, $bootloader.Length, $kernel.Length)

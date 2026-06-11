@@ -1,12 +1,19 @@
-// XPARQ OS - x86_64 Power Driver (Dummy)
-// Dummy power management driver for x86_64
+// XPARQ OS - x86_64 Power Driver
+// Power management driver for x86_64 with basic shutdown/reboot support
 
 use crate::power::{PowerDriver, PowerError, PowerSource, PowerSourceType, PowerSourceStatus, 
                    BatteryInfo, BatteryTechnology, BatteryHealth, PowerState, PowerPolicy, 
                    PowerStatistics, ThermalInfo, ThermalPolicy};
 use arrayvec::ArrayVec;
+use core::ptr::write_volatile;
 
-/// Dummy x86_64 power driver
+// x86 I/O port functions
+#[cfg(target_arch = "x86_64")]
+unsafe fn outb(port: u16, value: u8) {
+    core::arch::asm!("out dx, al", in("dx") port, in("al") value, options(nomem, nostack, preserves_flags));
+}
+
+/// x86_64 power driver
 pub struct X86PowerDriver {
     initialized: bool,
 }
@@ -17,6 +24,45 @@ impl X86PowerDriver {
             initialized: false,
         }
     }
+
+    /// Shutdown the system using QEMU's debug exit port
+    pub fn shutdown(&mut self) -> ! {
+        unsafe {
+            // QEMU debug exit (port 0x501)
+            outb(0x501, 0x01);
+        }
+        // Fallback to infinite loop
+        loop {
+            core::arch::asm!("hlt", options(nomem, nostack));
+        }
+    }
+
+    /// Reboot the system using the 8042 keyboard controller
+    pub fn reboot(&mut self) -> ! {
+        unsafe {
+            // Wait until the keyboard controller is ready
+            loop {
+                let status = inb(0x64);
+                if (status & 0x02 == 0 {
+                    break;
+                }
+            }
+            // Send reset command
+            outb(0x64, 0xFE);
+        }
+        // Fallback to infinite loop
+        loop {
+            core::arch::asm!("hlt", options(nomem, nostack));
+        }
+    }
+}
+
+// Need to define inb too for the reboot function
+#[cfg(target_arch = "x86_64")]
+unsafe fn inb(port: u16) -> u8 {
+    let value: u8;
+    core::arch::asm!("in al, dx", out("al") value, in("dx") port, options(nomem, nostack, preserves_flags));
+    value
 }
 
 impl Default for X86PowerDriver {
@@ -27,7 +73,7 @@ impl Default for X86PowerDriver {
 
 impl PowerDriver for X86PowerDriver {
     fn name(&self) -> &'static str {
-        "x86_64 Dummy Power Driver"
+        "x86_64 Power Driver"
     }
 
     fn init(&mut self) -> Result<(), PowerError> {
@@ -45,35 +91,23 @@ impl PowerDriver for X86PowerDriver {
             voltage: Some(19000), // 19V
             current: None,
         });
-        sources.push(PowerSource {
-            id: 1,
-            source_type: PowerSourceType::Battery,
-            status: PowerSourceStatus::Discharging,
-            capacity: Some(85), // 85%
-            voltage: Some(11100), // 11.1V
-            current: Some(3000), // 3A
-        });
         sources
     }
 
     fn get_battery_info(&self) -> Option<BatteryInfo> {
-        Some(BatteryInfo {
-            id: 1,
-            technology: BatteryTechnology::LiPoly,
-            capacity: 100,
-            current_capacity: 85,
-            voltage: 11100,
-            current: 3000,
-            temperature: Some(28), // 28°C
-            health: BatteryHealth::Good,
-            cycle_count: Some(120),
-            time_to_empty: Some(180), // 3 hours
-            time_to_full: None,
-        })
+        None
     }
 
-    fn set_power_state(&mut self, _state: PowerState) -> Result<(), PowerError> {
-        // Dummy implementation
+    fn set_power_state(&mut self, state: PowerState) -> Result<(), PowerError> {
+        match state {
+            PowerState::Off => {
+                self.shutdown();
+            }
+            PowerState::Reset => {
+                self.reboot();
+            }
+            _ => {}
+        }
         Ok(())
     }
 
@@ -91,14 +125,14 @@ impl PowerDriver for X86PowerDriver {
 
     fn get_power_statistics(&self) -> PowerStatistics {
         PowerStatistics {
-            uptime: 3600, // 1 hour
+            uptime: 0,
             sleep_time: 0,
             deep_sleep_time: 0,
             hibernate_time: 0,
-            power_cycles: 10,
-            battery_cycles: Some(120),
-            energy_consumed: 50000, // 50 Wh
-            last_charge_time: Some(1620000000), // Unix timestamp
+            power_cycles: 0,
+            battery_cycles: None,
+            energy_consumed: 0,
+            last_charge_time: None,
         }
     }
 
@@ -111,12 +145,7 @@ impl PowerDriver for X86PowerDriver {
     }
 
     fn get_thermal_info(&self) -> Option<ThermalInfo> {
-        Some(ThermalInfo {
-            cpu_temperature: 42, // 42°C
-            battery_temperature: Some(30), // 30°C
-            ambient_temperature: Some(25), // 25°C
-            thermal_zones: ArrayVec::new(),
-        })
+        None
     }
 
     fn set_thermal_policy(&mut self, _policy: ThermalPolicy) -> Result<(), PowerError> {

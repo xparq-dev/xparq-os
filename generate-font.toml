@@ -1,0 +1,8 @@
+[package]
+name = "generate-font"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "generate-font"
+path = "hal/src/x86_64/generate_font.rs"

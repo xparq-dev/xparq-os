@@ -1,34 +1,13 @@
-// XPARQ OS - Phase 02: Simple Kernel for Boot Verification (with Phase 3 HAL integration)
-// Minimal kernel for Phase 2 boot verification
-
+// XPARQ OS - Phase 3 Kernel with HAL VGA Driver
+// Uses HAL's x86_64 VBE display driver, minimal HAL init
 #![no_std]
 #![no_main]
 
-use xparq_hal::DisplayDriver;
-use xparq_hal::InputDriver;
-use xparq_hal as hal;
 use core::fmt::Write;
+use xparq_hal as hal;
 
-/// UART base address per architecture
-#[cfg(target_arch = "aarch64")]
-const UART_BASE: usize = 0x09000000; // PL011 on QEMU virt
-#[cfg(target_arch = "x86_64")]
-const UART_BASE: usize = 0x03F8;     // COM1 on x86
-
-#[cfg(target_arch = "aarch64")]
-const ARM64_UART_DR: usize = 0x00;
-#[cfg(target_arch = "aarch64")]
-const ARM64_UART_FR: usize = 0x18;
-#[cfg(target_arch = "aarch64")]
-const ARM64_UART_IBRD: usize = 0x24;
-#[cfg(target_arch = "aarch64")]
-const ARM64_UART_FBRD: usize = 0x28;
-#[cfg(target_arch = "aarch64")]
-const ARM64_UART_LCRH: usize = 0x2C;
-#[cfg(target_arch = "aarch64")]
-const ARM64_UART_CR: usize = 0x30;
-#[cfg(target_arch = "aarch64")]
-const ARM64_UART_ICR: usize = 0x44;
+/// UART base address for x86_64
+const UART_BASE: usize = 0x03F8;
 
 #[cfg(target_arch = "x86_64")]
 unsafe fn inb(port: u16) -> u8 {
@@ -42,24 +21,9 @@ unsafe fn outb(port: u16, value: u8) {
     core::arch::asm!("out dx, al", in("dx") port, in("al") value, options(nomem, nostack, preserves_flags));
 }
 
-#[cfg(target_arch = "aarch64")]
-unsafe fn serial_init() {
-    let uart = UART_BASE as *mut u32;
-
-    // PL011 setup for QEMU virt board.
-    core::ptr::write_volatile(uart.add(ARM64_UART_CR / 4), 0);
-    core::ptr::write_volatile(uart.add(ARM64_UART_ICR / 4), 0x7FF);
-    core::ptr::write_volatile(uart.add(ARM64_UART_IBRD / 4), 13);
-    core::ptr::write_volatile(uart.add(ARM64_UART_FBRD / 4), 1);
-    core::ptr::write_volatile(uart.add(ARM64_UART_LCRH / 4), (1 << 4) | (3 << 5));
-    core::ptr::write_volatile(uart.add(ARM64_UART_CR / 4), (1 << 0) | (1 << 8) | (1 << 9));
-}
-
 #[cfg(target_arch = "x86_64")]
 unsafe fn serial_init() {
     let base = UART_BASE as u16;
-
-    // Configure COM1 for 115200 8N1 so early output is stable in QEMU.
     outb(base + 1, 0x00); // Disable interrupts
     outb(base + 3, 0x80); // Enable DLAB
     outb(base + 0, 0x01); // Divisor low byte (115200 baud)
@@ -69,25 +33,11 @@ unsafe fn serial_init() {
     outb(base + 4, 0x0B); // IRQs enabled, RTS/DSR set
 }
 
-/// Write a single byte to UART (blocking)
 unsafe fn uart_putc(c: u8) {
-    #[cfg(target_arch = "aarch64")]
-    {
-        let uart = UART_BASE as *mut u32;
-        // Wait while TX FIFO is full.
-        while core::ptr::read_volatile(uart.add(ARM64_UART_FR / 4)) & (1 << 5) != 0 {}
-        core::ptr::write_volatile(uart.add(ARM64_UART_DR / 4), c as u32);
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    {
-        // Wait for UART transmit holding register empty (LSR bit 5 at port UART_BASE + 5)
-        while (inb((UART_BASE + 5) as u16) & 0x20) == 0 {}
-        outb(UART_BASE as u16, c);
-    }
+    while (inb((UART_BASE + 5) as u16) & 0x20) == 0 {}
+    outb(UART_BASE as u16, c);
 }
 
-/// Write a string slice to UART
 unsafe fn uart_puts(s: &[u8]) {
     for &byte in s {
         if byte == b'\n' {
@@ -97,76 +47,16 @@ unsafe fn uart_puts(s: &[u8]) {
     }
 }
 
-/// Print string constant (no allocation)
-macro_rules! print_str {
-    ($s:expr) => {{
-        unsafe { uart_puts($s.as_bytes()); }
-    }};
+/// Helper to print hex bytes
+fn u8_to_hex(byte: u8) -> [u8; 2] {
+    let hex_chars = b"0123456789ABCDEF";
+    [hex_chars[(byte >> 4) as usize], hex_chars[(byte & 0x0F) as usize]]
 }
 
-macro_rules! println_str {
-    ($s:expr) => {{
-        unsafe {
-            uart_puts($s.as_bytes());
-            uart_putc(b'\r');
-            uart_putc(b'\n');
-        }
-    }};
-}
-
-
-/// Boot information structure passed from bootloader
-#[derive(Debug)]
-pub struct BootInfo {
-    pub memory_regions: &'static [MemoryRegion],
-    pub framebuffer: Option<FramebufferInfo>,
-    pub arch_specific: ArchBootInfo,
-}
-
-/// Memory region information
-#[derive(Debug, Clone, Copy)]
-pub struct MemoryRegion {
-    pub base: usize,
-    pub size: usize,
-    pub kind: MemoryRegionKind,
-}
-
-/// Memory region types
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum MemoryRegionKind {
-    Usable,
-    Reserved,
-    AcpiReclaimable,
-    Nvs,
-    Badram,
-    Mmio,
-}
-
-/// Framebuffer information
-#[derive(Debug, Clone, Copy)]
-pub struct FramebufferInfo {
-    pub address: usize,
-    pub width: u32,
-    pub height: u32,
-    pub stride: u32,
-    pub format: hal::display::PixelFormat,
-}
-
-/// Architecture-specific boot information
-#[derive(Debug, Clone, Copy)]
-pub struct ArchBootInfo {
-    pub rsdp: usize,
-    pub bootloader_brand: &'static str,
-}
-
-#[cfg(target_arch = "aarch64")]
-fn boot_arch_label() -> &'static str {
-    "AArch64"
-}
-
-#[cfg(target_arch = "x86_64")]
-fn boot_arch_label() -> &'static str {
-    "x86-64"
+fn u16_to_hex(word: u16) -> [u8; 4] {
+    let b0 = u8_to_hex((word >> 8) as u8);
+    let b1 = u8_to_hex(word as u8);
+    [b0[0], b0[1], b1[0], b1[1]]
 }
 
 /// Kernel main function - called from bootloader
@@ -174,119 +64,88 @@ fn boot_arch_label() -> &'static str {
 pub extern "C" fn kernel_main() -> ! {
     unsafe {
         serial_init();
+        uart_puts(b"[XPARQ OS] Booting on x86_64...\n");
 
-        uart_puts(b"[XPARQ OS] Booting on ");
-        uart_puts(boot_arch_label().as_bytes());
-        uart_puts(b"...\n");
-        uart_puts(b"XPARQ OS Kernel v0.1.0\n");
-        
-        // Phase 3: Initialize HAL display
-        #[cfg(target_arch = "x86_64")]
-        {
-            uart_puts(b"[XPARQ OS] Initializing HAL display subsystem...\n");
-            if hal::init().is_ok() {
-                uart_puts(b"[XPARQ OS] HAL initialized successfully!\n");
-                // Now use the VGA display from HAL
-                if let Some(mut vga) = hal::x86_64::VGA_DISPLAY.lock().take() {
-                    vga.set_colors(hal::x86_64::display::VgaColor::White, hal::x86_64::display::VgaColor::Blue);
-                    writeln!(&mut vga, "XPARQ OS - Phase 3 HAL Initialized!").unwrap();
-                    writeln!(&mut vga, "Welcome to XPARQ OS!").unwrap();
-                    writeln!(&mut vga, "Type something or move the mouse: ").unwrap();
-                    // Initialize mouse cursor at center
-                    vga.set_mouse_pos(40, 12);
-                    // Put it back
-                    *hal::x86_64::VGA_DISPLAY.lock() = Some(vga);
+        // Initialize just HAL x86_64 arch specific (only VGA display)
+        uart_puts(b"[XPARQ OS] Initializing HAL x86_64 arch...\n");
+        if hal::x86_64::init_arch_specific().is_ok() {
+            uart_puts(b"[XPARQ OS] HAL arch initialized!\n");
+
+            // Use HAL's display
+            if let Some(mut display) = hal::x86_64::DISPLAY.lock().take() {
+                uart_puts(b"[XPARQ OS] Display obtained!\n");
+                writeln!(&mut display, "XPARQ OS - Phase 3 with HAL!").unwrap();
+                writeln!(&mut display, "Booted Successfully!").unwrap();
+                writeln!(&mut display, "").unwrap();
+
+                // Enumerate PCI devices
+                uart_puts(b"[XPARQ OS] Enumerating PCI devices...\n");
+                writeln!(&mut display, "PCI Devices:").unwrap();
+
+                let devices = hal::x86_64::pci::get_devices();
+                for dev in devices {
+                    // Print bus:dev:func
+                    let bus_hex = u8_to_hex(dev.func.bus);
+                    let dev_hex = u8_to_hex(dev.func.device);
+                    let func_hex = u8_to_hex(dev.func.function);
+                    let vendor_hex = u16_to_hex(dev.device_id.vendor_id);
+                    let device_hex = u16_to_hex(dev.device_id.device_id);
+                    let class_base_hex = u8_to_hex(dev.class_code.base);
+                    let class_sub_hex = u8_to_hex(dev.class_code.sub);
+                    let class_if_hex = u8_to_hex(dev.class_code.interface);
+
+                    // Print to display
+                    writeln!(&mut display, 
+                        "[{}{}:{}{}:{}{}] {}{}{}{}:{}{}{}{} {}{}:{}{}:{}{}",
+                        bus_hex[0] as char, bus_hex[1] as char,
+                        dev_hex[0] as char, dev_hex[1] as char,
+                        func_hex[0] as char, func_hex[1] as char,
+                        vendor_hex[0] as char, vendor_hex[1] as char, vendor_hex[2] as char, vendor_hex[3] as char,
+                        device_hex[0] as char, device_hex[1] as char, device_hex[2] as char, device_hex[3] as char,
+                        class_base_hex[0] as char, class_base_hex[1] as char,
+                        class_sub_hex[0] as char, class_sub_hex[1] as char,
+                        class_if_hex[0] as char, class_if_hex[1] as char,
+                    ).unwrap();
+
+                    // Print to UART
+                    uart_putc(b'[');
+                    uart_putc(bus_hex[0]);
+                    uart_putc(bus_hex[1]);
+                    uart_putc(b':');
+                    uart_putc(dev_hex[0]);
+                    uart_putc(dev_hex[1]);
+                    uart_putc(b':');
+                    uart_putc(func_hex[0]);
+                    uart_putc(func_hex[1]);
+                    uart_putc(b']');
+                    uart_putc(b' ');
+                    uart_putc(vendor_hex[0]);
+                    uart_putc(vendor_hex[1]);
+                    uart_putc(vendor_hex[2]);
+                    uart_putc(vendor_hex[3]);
+                    uart_putc(b':');
+                    uart_putc(device_hex[0]);
+                    uart_putc(device_hex[1]);
+                    uart_putc(device_hex[2]);
+                    uart_putc(device_hex[3]);
+                    uart_putc(b'\n');
                 }
-            } else {
-                uart_puts(b"[XPARQ OS] Failed to initialize HAL\n");
+
+                // Put display back
+                *hal::x86_64::DISPLAY.lock() = Some(display);
+                uart_puts(b"[XPARQ OS] PCI enumeration complete!\n");
             }
+        } else {
+            uart_puts(b"[XPARQ OS] HAL init failed!\n");
         }
 
-        #[cfg(target_arch = "aarch64")]
-        {
-            uart_puts(b"[XPARQ OS] Initializing ARM64 framebuffer...\n");
-            // For QEMU virt, we'll assume a framebuffer at 0xFFFF0000 (example address)
-            let mut fb_display = hal::arm64::display::QemuFramebufferDisplay::new(
-                0xFFFF0000, // Example framebuffer address
-                800,        // Width
-                600,        // Height
-                800 * 4     // Stride (4 bytes per pixel)
-            );
-            if fb_display.init().is_ok() {
-                uart_puts(b"[XPARQ OS] ARM64 framebuffer initialized successfully!\n");
-            } else {
-                uart_puts(b"[XPARQ OS] Failed to initialize ARM64 framebuffer\n");
-            }
-        }
+        uart_puts(b"[XPARQ OS] System in idle loop.\n");
 
-        uart_puts(b"[XPARQ OS] Kernel initialized.\n");
-        
-        // Initialize keyboard and mouse (x86_64 only for now) - using HAL input subsystem
-        #[cfg(target_arch = "x86_64")]
-        {
-            uart_puts(b"[XPARQ OS] Input subsystem ready!\n");
-            uart_puts(b"[XPARQ OS] Waiting for input...\n");
-            
-            loop {
-                // Check events from HAL input manager
-                if let Some(mut manager) = hal::input::get_input_manager_mut() {
-                    while let Some(event) = manager.get_event() {
-                        match event.data {
-                            hal::input::InputEventData::Key { keycode, modifiers, .. } => {
-                                // Handle printable characters
-                                if let Some(character) = hal::input::utils::keycode_to_char(keycode, modifiers) {
-                                    // Get VGA display from HAL
-                                    if let Some(mut vga) = hal::x86_64::VGA_DISPLAY.lock().take() {
-                                        vga.write_char_at_cursor(character as u8);
-                                        *hal::x86_64::VGA_DISPLAY.lock() = Some(vga);
-                                    }
-                                }
-                            },
-                            hal::input::InputEventData::Mouse { x, y, .. } => {
-                                // Get VGA display from HAL
-                                if let Some(mut vga) = hal::x86_64::VGA_DISPLAY.lock().take() {
-                                    vga.move_mouse(x, y);
-                                    *hal::x86_64::VGA_DISPLAY.lock() = Some(vga);
-                                }
-                            },
-                            _ => {}
-                        }
-                    }
-                }
-                
-                #[cfg(target_arch = "x86_64")]
-                unsafe {
-                    core::arch::asm!("cli; hlt", options(nomem, nostack));
-                }
-                #[cfg(not(target_arch = "x86_64"))]
-                core::hint::spin_loop();
-            }
-        }
-    }
-    loop {
-        #[cfg(target_arch = "x86_64")]
-        unsafe {
+        // Infinite idle loop
+        loop {
             core::arch::asm!("cli; hlt", options(nomem, nostack));
         }
-        #[cfg(not(target_arch = "x86_64"))]
-        core::hint::spin_loop();
     }
-}
-
-#[cfg(target_arch = "aarch64")]
-#[no_mangle]
-#[link_section = ".text.init"]
-#[unsafe(naked)]
-pub unsafe extern "C" fn _start() -> ! {
-    core::arch::naked_asm!(
-        "adrp x0, {stack}",
-        "add x0, x0, :lo12:{stack}",
-        "add sp, x0, {stack_top}",
-        "bl {kernel_main}",
-        stack = sym STACK,
-        stack_top = const STACK_TOP_OFFSET,
-        kernel_main = sym kernel_main,
-    );
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -306,40 +165,20 @@ pub unsafe extern "C" fn _start() -> ! {
 #[link_section = ".bss.stack"]
 static mut STACK: [u8; 16384] = [0; 16384];
 
-#[cfg(target_arch = "aarch64")]
-const STACK_SIZE: usize = 4096;
-
-#[cfg(target_arch = "aarch64")]
-const STACK_TOP_OFFSET: usize = STACK_SIZE - 16;
-
-#[cfg(target_arch = "aarch64")]
-#[repr(C, align(16))]
-struct Arm64Stack([u8; STACK_SIZE]);
-
-#[cfg(target_arch = "aarch64")]
-#[no_mangle]
-#[link_section = ".bss.stack"]
-static mut STACK: Arm64Stack = Arm64Stack([0; STACK_SIZE]);
-
-
-
-
 // Global allocator placeholder
 #[global_allocator]
 static DUMMY_ALLOCATOR: DummyAllocator = DummyAllocator;
 
-/// Dummy allocator for Phase 1
 struct DummyAllocator;
 
 unsafe impl core::alloc::GlobalAlloc for DummyAllocator {
     unsafe fn alloc(&self, _layout: core::alloc::Layout) -> *mut u8 {
         core::ptr::null_mut()
     }
-    
+
     unsafe fn dealloc(&self, _ptr: *mut u8, _layout: core::alloc::Layout) {
-        // Do nothing
     }
-    
+
     unsafe fn alloc_zeroed(&self, layout: core::alloc::Layout) -> *mut u8 {
         let ptr = unsafe { self.alloc(layout) };
         if !ptr.is_null() {
@@ -347,7 +186,7 @@ unsafe impl core::alloc::GlobalAlloc for DummyAllocator {
         }
         ptr
     }
-    
+
     unsafe fn realloc(&self, _ptr: *mut u8, _layout: core::alloc::Layout, _new_size: usize) -> *mut u8 {
         core::ptr::null_mut()
     }

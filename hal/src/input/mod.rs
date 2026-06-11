@@ -414,29 +414,29 @@ pub fn init() -> Result<(), super::HalError> {
         
         if let Some(manager) = &mut INPUT_MANAGER {
             manager.init_all()?;
-            // Add devices to manager for x86_64
+            // Add devices to manager for x86_64 (PS/2 devices temporarily skipped)
             #[cfg(target_arch = "x86_64")]
             {
-                if let Some(keyboard) = crate::x86_64::PS2_KEYBOARD.lock().as_ref() {
-                    let handle = InputDeviceHandle {
-                        id: 1,
-                        driver_name: keyboard.name(),
-                        info: keyboard.get_info(),
-                        enabled: keyboard.is_enabled(),
-                        calibration_status: keyboard.get_calibration_status(),
-                    };
-                    manager.devices.push(handle);
-                }
-                if let Some(mouse) = crate::x86_64::PS2_MOUSE.lock().as_ref() {
-                    let handle = InputDeviceHandle {
-                        id: 2,
-                        driver_name: mouse.name(),
-                        info: mouse.get_info(),
-                        enabled: mouse.is_enabled(),
-                        calibration_status: mouse.get_calibration_status(),
-                    };
-                    manager.devices.push(handle);
-                }
+                // if let Some(keyboard) = crate::x86_64::PS2_KEYBOARD.lock().as_ref() {
+                //     let handle = InputDeviceHandle {
+                //         id: 1,
+                //         driver_name: keyboard.name(),
+                //         info: keyboard.get_info(),
+                //         enabled: keyboard.is_enabled(),
+                //         calibration_status: keyboard.get_calibration_status(),
+                //     };
+                //     manager.devices.push(handle);
+                // }
+                // if let Some(mouse) = crate::x86_64::PS2_MOUSE.lock().as_ref() {
+                //     let handle = InputDeviceHandle {
+                //         id: 2,
+                //         driver_name: mouse.name(),
+                //         info: mouse.get_info(),
+                //         enabled: mouse.is_enabled(),
+                //         calibration_status: mouse.get_calibration_status(),
+                //     };
+                //     manager.devices.push(handle);
+                // }
             }
         }
     }

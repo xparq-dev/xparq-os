@@ -16,11 +16,11 @@ $proc = [System.Diagnostics.Process]::Start($psi)
 Start-Sleep 3
 
 $output = $proc.StandardOutput.ReadToEnd()
-$error = $proc.StandardError.ReadToEnd()
+$stderr = $proc.StandardError.ReadToEnd()
 
 if (!$proc.HasExited) { $proc.Kill() }
 
 Write-Host "=== STDOUT ==="
 Write-Host $output
 Write-Host "=== STDERR ==="
-Write-Host $error
+Write-Host $stderr

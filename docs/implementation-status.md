@@ -91,10 +91,28 @@ If you are an AI agent continuing work in this repository:
 
 - What remains blocked:
   - No USB HID drivers yet
-  - No PCIe bus enumeration
   - No real GPU drivers
 
+- What was completed today (2026-06-11):
+  - ✅ PCIe bus enumeration using ECAM (MMIO) is now implemented!
+  - ✅ Integrated PCIe manager into HAL initialization
+  - ✅ Kernel now enumerates and displays all PCI devices on VGA console and serial output
+  - ✅ Tested in QEMU!
+  - ✅ Added VBE framebuffer mode support (1024x768, 32bpp)!
+  - ✅ Created X86Display driver that automatically uses VBE if available, falls back to VGA text mode!
+  - ✅ Updated bootloader to set VBE mode and store mode info at 0x7E00
+  - ✅ Updated hal/src/x86_64/display.rs, hal/src/x86_64/mod.rs, and kernel/src/main_simple.rs to use new X86Display!
+  - ✅ Fully buildable and testable in QEMU!
+  - ✅ Added VGA font support (created vga-font.bin with generate_font.rs)!
+  - ✅ Updated display driver to use the VGA font for text rendering in VBE mode!
+  - ✅ Improved storage driver! Replaced dummy implementation with RAM disk support (64 MB, 512-byte sectors)!
+  - ✅ Added static storage driver instance to hal/src/x86_64/mod.rs!
+  - ✅ Improved power driver! Added shutdown and reboot support!
+  - ✅ Added static power driver instance to hal/src/x86_64/mod.rs!
+  - ✅ Added ATA/IDE support to storage driver!
+  - ✅ Updated .gitignore to not ignore vga-font.bin!
+  - ✅ Updated docs/implementation-status.md!
+
 - Next smallest executable step:
-  - Test boot in QEMU (if QEMU installed)
-  - Continue Phase 3 HAL implementation (PCIe, framebuffer mode)
+  - Continue Phase 3 HAL implementation (other drivers)
   - Work on Phase 3.5 x86 desktop platform

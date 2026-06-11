@@ -26,6 +26,7 @@ Thumbs.db
 
 # Build artifacts
 /build/
+!hal/src/x86_64/vga-font.bin
 *.bin
 *.elf
 *.o
