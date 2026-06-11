@@ -27,6 +27,7 @@ use audio::X86AudioDriver;
 use crate::x86_64::apic::timer_handler;
 use crate::x86_64::ahci::AHCI_PCI_DRIVER;
 use crate::x86_64::nvme::NVME_PCI_DRIVER;
+use crate::x86_64::usb::XHCI_PCI_DRIVER;
 use crate::x86_64::storage::ata_irq_handler;
 
 /// Static display driver instance
@@ -93,6 +94,7 @@ pub fn init_arch_specific() -> Result<(), HalError> {
     // Register and bind PCI drivers
     pci::register_driver(&AHCI_PCI_DRIVER);
     pci::register_driver(&NVME_PCI_DRIVER);
+    pci::register_driver(&XHCI_PCI_DRIVER);
     pci::bind_drivers();
 
     // Initialize storage driver

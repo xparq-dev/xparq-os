@@ -5,6 +5,9 @@
 use bitflags::bitflags;
 use arrayvec::ArrayVec;
 
+pub mod hid;
+pub mod mass_storage;
+
 /// USB driver trait
 pub trait UsbDriver {
     /// Get driver name
