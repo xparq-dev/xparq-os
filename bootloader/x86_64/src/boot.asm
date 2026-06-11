@@ -103,17 +103,17 @@ start_after_bpb:
     mov eax, cr0
     or eax, 1
     mov cr0, eax
-    jmp 0x0008:0x7C00 + pmode_start - start_after_bpb
+    jmp 0x0008:pmode
 
 [BITS 32]
-pmode_start:
+pmode:
     mov ax, 0x10
     mov ds, ax
     mov es, ax
     mov ss, ax
     mov edi, 0xB8000
-    mov byte [edi+12], '3'
-    mov byte [edi+13], 0x6F
+    mov byte [edi+10], '3'
+    mov byte [edi+11], 0x6F
 
     ; Page tables at 0x7000
     mov edi, 0x7000
