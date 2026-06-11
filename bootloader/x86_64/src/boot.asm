@@ -112,10 +112,14 @@ pmode:
     mov ds, ax
     mov es, ax
     mov ss, ax
+    mov sp, 0x7B00
+
+    ; Write "3" as quickly as possible
     mov edi, 0xB8000
     mov byte [edi+10], '3'
     mov byte [edi+11], 0x6F
 
+    ; Now set up page tables and go to long mode
     ; Page tables at 0x7000
     mov edi, 0x7000
     xor eax, eax
@@ -167,6 +171,9 @@ lmode:
     mov ds, ax
     mov es, ax
     mov ss, ax
+    mov sp, 0x7B00
+
+    ; Write "6" to confirm
     mov edi, 0xB8000
     mov byte [edi+12], '6'
     mov byte [edi+13], 0x70
