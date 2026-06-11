@@ -100,7 +100,7 @@ start_after_bpb:
     or eax, 1
     mov cr0, eax
     jmp short $+2  ; flush prefetch
-    jmp 0x0008:0x7C00 + pmode - start_after_bpb
+    jmp 0x0008:pmode
 
 [BITS 32]
 pmode:
