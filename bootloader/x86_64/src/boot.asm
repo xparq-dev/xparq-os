@@ -62,12 +62,12 @@ start_after_bpb:
     mov byte [es:2], 'R'
     mov byte [es:3], 0x2F
 
-    ; Load kernel (64 sectors = 32KB from sector 1)
+    ; Load kernel (80 sectors = 40KB from sector 1)
     mov ax, 0x1000
     mov es, ax
     xor bx, bx
     mov ah, 0x02
-    mov al, 64
+    mov al, 80
     mov ch, 0
     mov cl, 1
     mov dh, 0
@@ -95,21 +95,25 @@ start_after_bpb:
     mov byte [es:8], 'G'
     mov byte [es:9], 0x5F
 
+    ; Write "J" before jump
+    mov byte [es:10], 'J'
+    mov byte [es:11], 0x6F
+
     ; Protected mode
     mov eax, cr0
     or eax, 1
     mov cr0, eax
-    jmp 0x08:pmode
+    jmp 0x0008:0x7C00 + pmode_start - start_after_bpb
 
 [BITS 32]
-pmode:
+pmode_start:
     mov ax, 0x10
     mov ds, ax
     mov es, ax
     mov ss, ax
     mov edi, 0xB8000
-    mov byte [edi+10], '3'
-    mov byte [edi+11], 0x6F
+    mov byte [edi+12], '3'
+    mov byte [edi+13], 0x6F
 
     ; Page tables at 0x7000
     mov edi, 0x7000
