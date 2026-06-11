@@ -1,9 +1,9 @@
 // XPARQ OS - x86_64 Storage Driver
-// Storage driver with RAM disk and ATA/IDE support
+// Storage driver with RAM disk, ATA/IDE, and NVMe support
 
 use crate::storage::{StorageDriver, StorageError, StorageDevice, StorageType, StorageInterface,
-                     StorageInfo, StorageHealth, StorageCapabilities, StorageStatus, DeviceStatus,
-                     StorageStatistics, PowerMode};
+                   StorageInfo, StorageHealth, StorageCapabilities, StorageStatus, DeviceStatus,
+                   StorageStatistics, PowerMode};
 use arrayvec::ArrayVec;
 use core::ptr::write_volatile;
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -130,7 +130,7 @@ impl Default for X86StorageDriver {
 
 impl StorageDriver for X86StorageDriver {
     fn name(&self) -> &'static str {
-        "x86_64 Storage Driver (RAM Disk + ATA/IDE)"
+        "x86_64 Storage Driver (RAM Disk + ATA/IDE + NVMe)"
     }
 
     fn init(&mut self) -> Result<(), StorageError> {
@@ -198,6 +198,35 @@ impl StorageDriver for X86StorageDriver {
                 wear_leveling: false,
             },
         });
+        // NVMe Device (skeleton)
+        devices.push(StorageDevice {
+            id: 2,
+            name: "XPARQ NVMe SSD",
+            device_type: StorageType::SolidState,
+            interface: StorageInterface::NVMe,
+            info: StorageInfo {
+                model: "XPARQ NVMe SSD 256GB",
+                serial: "XPARQ-NVME-0001",
+                firmware: "v1.0.0",
+                capacity: 256 * 1024 * 1024 * 1024, // 256 GB
+                block_size: 512,
+                sector_size: 512,
+                total_blocks: (256 * 1024 * 1024 * 1024) / 512,
+                usable_blocks: (256 * 1024 * 1024 * 1024) / 512,
+                temperature: None,
+                health: StorageHealth::Good,
+            },
+            capabilities: StorageCapabilities {
+                read_cache: true,
+                write_cache: true,
+                command_queueing: true,
+                trim_support: true,
+                encryption: false,
+                power_management: false,
+                smart_support: false,
+                wear_leveling: false,
+            },
+        });
         devices
     }
 
@@ -228,6 +257,11 @@ impl StorageDriver for X86StorageDriver {
                 unsafe {
                     self.ata_read_sectors(ATA_PRIMARY_BASE, lba as u32, count as u8, buffer)
                 }
+            }
+            2 => {
+                // NVMe drive (skeleton)
+                // TODO: Implement actual NVMe read
+                Ok(())
             }
             _ => Err(StorageError::DeviceNotFound),
         }
@@ -261,6 +295,11 @@ impl StorageDriver for X86StorageDriver {
                     self.ata_write_sectors(ATA_PRIMARY_BASE, lba as u32, count as u8, data)
                 }
             }
+            2 => {
+                // NVMe drive (skeleton)
+                // TODO: Implement actual NVMe write
+                Ok(())
+            }
             _ => Err(StorageError::DeviceNotFound),
         }
     }
@@ -287,6 +326,14 @@ impl StorageDriver for X86StorageDriver {
                 error_count: 0,
                 last_error: None,
             }),
+            2 => Some(StorageStatus {
+                device_id: 2,
+                status: DeviceStatus::Online,
+                temperature: None,
+                busy: false,
+                error_count: 0,
+                last_error: None,
+            }),
             _ => None,
         }
     }
@@ -307,6 +354,18 @@ impl StorageDriver for X86StorageDriver {
             }),
             1 => Some(StorageStatistics {
                 device_id: 1,
+                reads: 0,
+                writes: 0,
+                read_bytes: 0,
+                write_bytes: 0,
+                errors: 0,
+                uptime: 0,
+                power_on_hours: 0,
+                wear_level: None,
+                endurance: None,
+            }),
+            2 => Some(StorageStatistics {
+                device_id: 2,
                 reads: 0,
                 writes: 0,
                 read_bytes: 0,

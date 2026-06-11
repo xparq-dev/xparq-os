@@ -11,6 +11,8 @@ pub mod power;
 pub mod storage;
 pub mod pci;
 pub mod audio;
+pub mod acpi;
+pub mod usb;
 use display::X86Display;
 use keyboard::Ps2Keyboard;
 use mouse::Ps2Mouse;
@@ -41,6 +43,9 @@ pub fn init_arch_specific() -> Result<(), HalError> {
     let mut display = display::X86Display::new();
     display.init()?;
     *DISPLAY.lock() = Some(display);
+
+    // Initialize ACPI
+    let _ = acpi::init();
 
     // Initialize PCIe bus manager
     pci::init()?;
