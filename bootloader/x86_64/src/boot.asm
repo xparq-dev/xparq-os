@@ -1,20 +1,15 @@
-; XPARQ OS - x86-64 Bootloader (SIMPLE)
-; Real → Protected → Long, no VBE, VGA text only
-; Debug serial output at each step
+; XPARQ OS - x86-64 Bootloader
+; Real → Protected → Long, VGA only, no VBE
+; Debug on VGA text buffer at 0xB8000
 
 [BITS 16]
 [ORG 0x7C00]
 
-; Macro for serial output 0x3F8
-%macro putc_serial 1
-    mov dx, 0x3FD
-%%wait:
-    in al, dx
-    test al, 0x20
-    jz %%wait
-    mov al, %1
-    mov dx, 0x3F8
-    out dx, al
+%macro vga_putc 2
+    mov di, 0xB8000 + (80 * 2 * %1) + (%2 * 2)
+    mov al, %2 + '0'
+    mov ah, 0x1F
+    stosw
 %endmacro
 
 start:
@@ -22,19 +17,24 @@ start:
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov sp, 0x7C00
+    mov sp, 0x7B00
     mov [boot_drive], dl
 
-    putc_serial 'S'
+    ; Write "X" at (0,0)
+    mov ax, 0xB8000
+    mov es, ax
+    mov byte [es:0], 'X'
+    mov byte [es:1], 0x1F
 
     ; Reset disk
     xor ax, ax
     mov dl, [boot_drive]
     int 0x13
     jc error
-    putc_serial 'R'
+    mov byte [es:2], 'R'
+    mov byte [es:3], 0x2F
 
-    ; Load kernel (64 sectors = 32KB from sector 2)
+    ; Load kernel
     mov ax, 0x1000
     mov es, ax
     xor bx, bx
@@ -46,15 +46,26 @@ start:
     mov dl, [boot_drive]
     int 0x13
     jc error
-    putc_serial 'K'
+    mov ax, 0xB8000
+    mov es, ax
+    mov byte [es:4], 'K'
+    mov byte [es:5], 0x3F
 
     ; A20
     mov ax, 0x2401
     int 0x15
     cli
+    mov ax, 0xB8000
+    mov es, ax
+    mov byte [es:6], 'A'
+    mov byte [es:7], 0x4F
 
     ; GDT
     lgdt [gdt_desc]
+    mov ax, 0xB8000
+    mov es, ax
+    mov byte [es:8], 'G'
+    mov byte [es:9], 0x5F
 
     ; Protected mode
     mov eax, cr0
@@ -68,6 +79,9 @@ pmode:
     mov ds, ax
     mov es, ax
     mov ss, ax
+    mov edi, 0xB8000
+    mov byte [edi+10], '3'
+    mov byte [edi+11], 0x6F
 
     ; Page tables at 0x7000
     mov edi, 0x7000
@@ -120,11 +134,17 @@ lmode:
     mov ds, ax
     mov es, ax
     mov ss, ax
+    mov edi, 0xB8000
+    mov byte [edi+12], '6'
+    mov byte [edi+13], 0x70
 
     jmp 0x10000
 
 error:
-    putc_serial 'E'
+    mov ax, 0xB8000
+    mov es, ax
+    mov byte [es:0], 'E'
+    mov byte [es:1], 0x4F
     cli
     hlt
 
