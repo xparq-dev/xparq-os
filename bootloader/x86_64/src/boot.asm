@@ -79,9 +79,10 @@ start_after_bpb:
     mov byte [es:4], 'K'
     mov byte [es:5], 0x3F
 
-    ; A20
-    mov ax, 0x2401
-    int 0x15
+    ; FAST A20 (port 0x92, super simple)
+    in al, 0x92
+    or al, 2
+    out 0x92, al
     cli
     mov ax, 0xB800
     mov es, ax
