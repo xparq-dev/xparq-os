@@ -62,14 +62,14 @@ start_after_bpb:
     mov byte [es:2], 'R'
     mov byte [es:3], 0x2F
 
-    ; Load kernel (64 sectors = 32KB from sector 2)
+    ; Load kernel (64 sectors = 32KB from sector 1)
     mov ax, 0x1000
     mov es, ax
     xor bx, bx
     mov ah, 0x02
     mov al, 64
     mov ch, 0
-    mov cl, 2
+    mov cl, 1
     mov dh, 0
     mov dl, [boot_drive]
     int 0x13
