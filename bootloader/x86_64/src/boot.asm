@@ -114,12 +114,11 @@ pmode:
     mov ss, ax
     mov sp, 0x7B00
 
-    ; Write "3" as quickly as possible
+    ; Write "3"
     mov edi, 0xB8000
     mov byte [edi+10], '3'
     mov byte [edi+11], 0x6F
 
-    ; Now set up page tables and go to long mode
     ; Page tables at 0x7000
     mov edi, 0x7000
     xor eax, eax
@@ -173,7 +172,7 @@ lmode:
     mov ss, ax
     mov sp, 0x7B00
 
-    ; Write "6" to confirm
+    ; Write "6"
     mov edi, 0xB8000
     mov byte [edi+12], '6'
     mov byte [edi+13], 0x70
@@ -190,29 +189,10 @@ error:
 
 ; GDT
 gdt_start:
-    ; Null descriptor (0x00)
-    dq 0
-    ; Code segment descriptor (0x08): 32-bit ring0, code read/exec, 4K granularity, limit 0xFFFFF
-    dw 0xFFFF ; limit (0-15)
-    dw 0x0000 ; base (0-15)
-    db 0x00 ; base (16-23)
-    db 0x9A ; access (present, ring0, code, read/exec)
-    db 0xCF ; flags (granularity, 32-bit) + limit (16-19)
-    db 0x00 ; base (24-31)
-    ; Data segment descriptor (0x10): 32-bit ring0, data read/write, 4K granularity, limit 0xFFFFF
-    dw 0xFFFF
-    dw 0x0000
-    db 0x00
-    db 0x92
-    db 0xCF
-    db 0x00
-    ; Code64 segment (0x18): 64-bit ring0, code read/exec
-    dw 0xFFFF
-    dw 0x0000
-    db 0x00
-    db 0x9A
-    db 0x20 ; 64-bit flag only
-    db 0x00
+    dq 0                     ; Null
+    dw 0xFFFF,0,0x9A,0xCF,0  ; Code32
+    dw 0xFFFF,0,0x92,0xCF,0  ; Data32
+    dw 0xFFFF,0,0x9A,0x20,0  ; Code64
 gdt_end:
 gdt_desc:
     dw gdt_end - gdt_start - 1
