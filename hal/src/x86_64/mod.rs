@@ -14,6 +14,7 @@ pub mod audio;
 pub mod acpi;
 pub mod apic;
 pub mod idt;
+pub mod pic;
 pub mod usb;
 use display::X86Display;
 use keyboard::Ps2Keyboard;
@@ -51,6 +52,9 @@ pub fn init_arch_specific() -> Result<(), HalError> {
 
     // Initialize ACPI
     let _ = acpi::init();
+
+    // Disable legacy 8259 PIC before initializing APIC
+    pic::disable_pic();
 
     // Initialize APIC
     let _ = apic::init();
