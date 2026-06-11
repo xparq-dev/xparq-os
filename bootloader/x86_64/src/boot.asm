@@ -5,14 +5,36 @@
 [BITS 16]
 [ORG 0x7C00]
 
-%macro vga_putc 2
-    mov di, 0xB8000 + (80 * 2 * %1) + (%2 * 2)
-    mov al, %2 + '0'
-    mov ah, 0x1F
-    stosw
-%endmacro
+; Dummy BIOS Parameter Block (BPB) to keep BIOS happy
+jmp short start_after_bpb
+nop
 
-start:
+; OEM ID (8 bytes)
+db 'XPARQ   '
+
+; BPB for FAT12/16
+dw 512             ; Bytes per sector
+db 1               ; Sectors per cluster
+dw 1               ; Reserved sectors
+db 2               ; Number of FATs
+dw 224             ; Root entries
+dw 2880            ; Total sectors (1.44MB floppy)
+db 0xF0            ; Media descriptor
+dw 9               ; Sectors per FAT
+dw 18              ; Sectors per track
+dw 2               ; Heads per cylinder
+dd 0               ; Hidden sectors
+dd 0               ; Large total sectors (0 for FAT12)
+
+; EBPB (Extended Boot Record)
+db 0x00            ; Drive number
+db 0x00            ; Reserved
+db 0x29            ; Extended boot signature
+dd 0x12345678      ; Volume ID (random)
+db 'XPARQ BOOT '   ; Volume label (11 bytes)
+db 'FAT12   '      ; File system type (8 bytes)
+
+start_after_bpb:
     xor ax, ax
     mov ds, ax
     mov es, ax
@@ -20,9 +42,15 @@ start:
     mov sp, 0x7B00
     mov [boot_drive], dl
 
-    ; Write "X" at (0,0)
-    mov ax, 0xB8000
+    ; Clear VGA text buffer
+    mov ax, 0xB800
     mov es, ax
+    mov di, 0
+    mov cx, 80*25
+    mov ax, 0x1F20 ; Space with blue bg
+    rep stosw
+
+    ; Write "X" at (0,0)
     mov byte [es:0], 'X'
     mov byte [es:1], 0x1F
 
@@ -34,7 +62,7 @@ start:
     mov byte [es:2], 'R'
     mov byte [es:3], 0x2F
 
-    ; Load kernel
+    ; Load kernel (64 sectors = 32KB from sector 2)
     mov ax, 0x1000
     mov es, ax
     xor bx, bx
@@ -46,7 +74,7 @@ start:
     mov dl, [boot_drive]
     int 0x13
     jc error
-    mov ax, 0xB8000
+    mov ax, 0xB800
     mov es, ax
     mov byte [es:4], 'K'
     mov byte [es:5], 0x3F
@@ -55,14 +83,14 @@ start:
     mov ax, 0x2401
     int 0x15
     cli
-    mov ax, 0xB8000
+    mov ax, 0xB800
     mov es, ax
     mov byte [es:6], 'A'
     mov byte [es:7], 0x4F
 
     ; GDT
     lgdt [gdt_desc]
-    mov ax, 0xB8000
+    mov ax, 0xB800
     mov es, ax
     mov byte [es:8], 'G'
     mov byte [es:9], 0x5F
@@ -141,7 +169,7 @@ lmode:
     jmp 0x10000
 
 error:
-    mov ax, 0xB8000
+    mov ax, 0xB800
     mov es, ax
     mov byte [es:0], 'E'
     mov byte [es:1], 0x4F
