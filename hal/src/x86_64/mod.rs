@@ -13,6 +13,7 @@ pub mod pci;
 pub mod audio;
 pub mod acpi;
 pub mod apic;
+pub mod idt;
 pub mod usb;
 use display::X86Display;
 use keyboard::Ps2Keyboard;
@@ -44,6 +45,9 @@ pub fn init_arch_specific() -> Result<(), HalError> {
     let mut display = display::X86Display::new();
     display.init()?;
     *DISPLAY.lock() = Some(display);
+
+    // Initialize IDT
+    idt::init();
 
     // Initialize ACPI
     let _ = acpi::init();
