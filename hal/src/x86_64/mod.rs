@@ -10,11 +10,13 @@ pub mod mouse;
 pub mod power;
 pub mod storage;
 pub mod pci;
+pub mod audio;
 use display::X86Display;
 use keyboard::Ps2Keyboard;
 use mouse::Ps2Mouse;
 use storage::X86StorageDriver;
 use power::X86PowerDriver;
+use audio::X86AudioDriver;
 
 /// Static display driver instance
 pub static DISPLAY: Mutex<Option<X86Display>> = Mutex::new(None);
@@ -30,6 +32,9 @@ pub static STORAGE: Mutex<Option<X86StorageDriver>> = Mutex::new(None);
 
 /// Static power driver instance
 pub static POWER: Mutex<Option<X86PowerDriver>> = Mutex::new(None);
+
+/// Static audio driver instance
+pub static AUDIO: Mutex<Option<X86AudioDriver>> = Mutex::new(None);
 
 pub fn init_arch_specific() -> Result<(), HalError> {
     // Initialize display
@@ -49,6 +54,11 @@ pub fn init_arch_specific() -> Result<(), HalError> {
     let mut power = power::X86PowerDriver::new();
     power.init()?;
     *POWER.lock() = Some(power);
+
+    // Initialize audio driver
+    let mut audio = audio::X86AudioDriver::new();
+    audio.init()?;
+    *AUDIO.lock() = Some(audio);
 
     Ok(())
 }

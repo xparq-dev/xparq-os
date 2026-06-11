@@ -111,8 +111,14 @@ If you are an AI agent continuing work in this repository:
   - ✅ Added static power driver instance to hal/src/x86_64/mod.rs!
   - ✅ Added ATA/IDE support to storage driver!
   - ✅ Updated .gitignore to not ignore vga-font.bin!
+  - ✅ Added Connectivity and USB subsystem modules to HAL!
+  - ✅ Updated HAL lib.rs to include new modules!
+  - ✅ Updated DeviceManager to handle new connectivity and USB drivers!
+  - ✅ Added Audio and Sensors subsystem modules to HAL!
+  - ✅ Updated DeviceManager to handle new audio and sensor drivers!
+  - ✅ Updated HAL lib.rs init() to initialize audio and sensors too!
   - ✅ Updated docs/implementation-status.md!
 
 - Next smallest executable step:
-  - Continue Phase 3 HAL implementation (other drivers)
-  - Work on Phase 3.5 x86 desktop platform
+  - Start Phase 3.5 x86 desktop platform implementation!
+  - (Optional) Improve existing Phase 3 components (add NVMe to storage, add ACPI to power, etc.)

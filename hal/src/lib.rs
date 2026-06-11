@@ -136,6 +136,10 @@ pub mod display;
 pub mod input;
 pub mod power;
 pub mod storage;
+pub mod connectivity;
+pub mod usb;
+pub mod audio;
+pub mod sensors;
 
 // Architecture-specific modules
 #[cfg(target_arch = "aarch64")]
@@ -149,6 +153,10 @@ pub use display::{DisplayDriver, DisplayInfo, DisplayMode, PixelFormat};
 pub use input::{InputDriver, InputEvent, InputDeviceType, InputEventKind};
 pub use power::{PowerDriver, PowerState, BatteryInfo, PowerPolicy};
 pub use storage::{StorageDriver, StorageDevice, StorageInfo, StorageError};
+pub use connectivity::{ConnectivityDriver, ConnectivityDeviceInfo, ConnectivityError};
+pub use usb::{UsbDriver, UsbHostInfo, UsbError};
+pub use audio::{AudioDriver, AudioDeviceInfo, AudioError};
+pub use sensors::{SensorDriver, SensorDeviceInfo, SensorError};
 
 // Error type conversions
 impl From<crate::display::DisplayError> for HalError {
@@ -175,6 +183,30 @@ impl From<crate::storage::StorageError> for HalError {
     }
 }
 
+impl From<crate::connectivity::ConnectivityError> for HalError {
+    fn from(_error: crate::connectivity::ConnectivityError) -> Self {
+        HalError::HardwareFailure
+    }
+}
+
+impl From<crate::usb::UsbError> for HalError {
+    fn from(_error: crate::usb::UsbError) -> Self {
+        HalError::HardwareFailure
+    }
+}
+
+impl From<crate::audio::AudioError> for HalError {
+    fn from(_error: crate::audio::AudioError) -> Self {
+        HalError::HardwareFailure
+    }
+}
+
+impl From<crate::sensors::SensorError> for HalError {
+    fn from(_error: crate::sensors::SensorError) -> Self {
+        HalError::HardwareFailure
+    }
+}
+
 /// HAL version information
 pub const HAL_VERSION: &str = "0.1.0";
 pub const HAL_NAME: &str = "XPARQ Hardware Abstraction Layer";
@@ -185,7 +217,7 @@ pub fn get_hal_info() -> HalInfo {
         name: HAL_NAME,
         version: HAL_VERSION,
         supported_architectures: SupportedArchitectures::ARM64 | SupportedArchitectures::X86_64,
-        features: HalFeatures::DISPLAY | HalFeatures::INPUT | HalFeatures::POWER | HalFeatures::STORAGE,
+        features: HalFeatures::DISPLAY | HalFeatures::INPUT | HalFeatures::POWER | HalFeatures::STORAGE | HalFeatures::CONNECTIVITY | HalFeatures::AUDIO | HalFeatures::SENSORS,
     }
 }
 
@@ -205,6 +237,18 @@ pub fn init() -> Result<(), HalError> {
     // Initialize storage subsystem
     storage::init()?;
     
+    // Initialize connectivity subsystem
+    connectivity::init()?;
+    
+    // Initialize USB subsystem
+    usb::init()?;
+    
+    // Initialize audio subsystem
+    audio::init()?;
+    
+    // Initialize sensors subsystem
+    sensors::init()?;
+    
     println!("HAL initialized");
     Ok(())
 }
@@ -219,6 +263,14 @@ pub struct DeviceManager {
     power_drivers: arrayvec::ArrayVec<*const (), 4>,
     /// Registered storage drivers - simplified for no_std
     storage_drivers: arrayvec::ArrayVec<*const (), 8>,
+    /// Registered connectivity drivers - simplified for no_std
+    connectivity_drivers: arrayvec::ArrayVec<*const (), 8>,
+    /// Registered USB drivers - simplified for no_std
+    usb_drivers: arrayvec::ArrayVec<*const (), 8>,
+    /// Registered audio drivers - simplified for no_std
+    audio_drivers: arrayvec::ArrayVec<*const (), 8>,
+    /// Registered sensor drivers - simplified for no_std
+    sensor_drivers: arrayvec::ArrayVec<*const (), 32>,
 }
 
 impl DeviceManager {
@@ -229,6 +281,10 @@ impl DeviceManager {
             input_drivers: arrayvec::ArrayVec::new(),
             power_drivers: arrayvec::ArrayVec::new(),
             storage_drivers: arrayvec::ArrayVec::new(),
+            connectivity_drivers: arrayvec::ArrayVec::new(),
+            usb_drivers: arrayvec::ArrayVec::new(),
+            audio_drivers: arrayvec::ArrayVec::new(),
+            sensor_drivers: arrayvec::ArrayVec::new(),
         }
     }
     
@@ -255,6 +311,34 @@ impl DeviceManager {
     
     /// Register storage driver - simplified for no_std
     pub fn register_storage_driver(&mut self, _driver: *const ()) -> Result<(), HalError> {
+        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
+        // Phase 2: Use trait objects without heap allocation
+        Ok(())
+    }
+    
+    /// Register connectivity driver - simplified for no_std
+    pub fn register_connectivity_driver(&mut self, _driver: *const ()) -> Result<(), HalError> {
+        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
+        // Phase 2: Use trait objects without heap allocation
+        Ok(())
+    }
+    
+    /// Register USB driver - simplified for no_std
+    pub fn register_usb_driver(&mut self, _driver: *const ()) -> Result<(), HalError> {
+        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
+        // Phase 2: Use trait objects without heap allocation
+        Ok(())
+    }
+    
+    /// Register audio driver - simplified for no_std
+    pub fn register_audio_driver(&mut self, _driver: *const ()) -> Result<(), HalError> {
+        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
+        // Phase 2: Use trait objects without heap allocation
+        Ok(())
+    }
+    
+    /// Register sensor driver - simplified for no_std
+    pub fn register_sensor_driver(&mut self, _driver: *const ()) -> Result<(), HalError> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         Ok(())
@@ -288,6 +372,34 @@ impl DeviceManager {
         None
     }
     
+    /// Get connectivity driver by name - simplified for no_std
+    pub fn get_connectivity_driver(&self, _name: &str) -> Option<&dyn ConnectivityDriver> {
+        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
+        // Phase 2: Use trait objects without heap allocation
+        None
+    }
+    
+    /// Get USB driver by name - simplified for no_std
+    pub fn get_usb_driver(&self, _name: &str) -> Option<&dyn UsbDriver> {
+        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
+        // Phase 2: Use trait objects without heap allocation
+        None
+    }
+    
+    /// Get audio driver by name - simplified for no_std
+    pub fn get_audio_driver(&self, _name: &str) -> Option<&dyn AudioDriver> {
+        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
+        // Phase 2: Use trait objects without heap allocation
+        None
+    }
+    
+    /// Get sensor driver by name - simplified for no_std
+    pub fn get_sensor_driver(&self, _name: &str) -> Option<&dyn SensorDriver> {
+        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
+        // Phase 2: Use trait objects without heap allocation
+        None
+    }
+    
     /// List all display drivers - simplified for no_std
     pub fn list_display_drivers(&self) -> arrayvec::ArrayVec<&str, 8> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
@@ -311,6 +423,34 @@ impl DeviceManager {
     
     /// List all storage drivers - simplified for no_std
     pub fn list_storage_drivers(&self) -> arrayvec::ArrayVec<&str, 8> {
+        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
+        // Phase 2: Use trait objects without heap allocation
+        arrayvec::ArrayVec::new()
+    }
+    
+    /// List all connectivity drivers - simplified for no_std
+    pub fn list_connectivity_drivers(&self) -> arrayvec::ArrayVec<&str, 8> {
+        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
+        // Phase 2: Use trait objects without heap allocation
+        arrayvec::ArrayVec::new()
+    }
+    
+    /// List all USB drivers - simplified for no_std
+    pub fn list_usb_drivers(&self) -> arrayvec::ArrayVec<&str, 8> {
+        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
+        // Phase 2: Use trait objects without heap allocation
+        arrayvec::ArrayVec::new()
+    }
+    
+    /// List all audio drivers - simplified for no_std
+    pub fn list_audio_drivers(&self) -> arrayvec::ArrayVec<&str, 8> {
+        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
+        // Phase 2: Use trait objects without heap allocation
+        arrayvec::ArrayVec::new()
+    }
+    
+    /// List all sensor drivers - simplified for no_std
+    pub fn list_sensor_drivers(&self) -> arrayvec::ArrayVec<&str, 32> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         arrayvec::ArrayVec::new()
