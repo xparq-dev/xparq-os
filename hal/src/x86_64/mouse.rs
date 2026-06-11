@@ -4,6 +4,8 @@
 use crate::input::{InputDriver, InputError, InputDeviceInfo, InputDeviceType, InputCapabilities, InputEvent, InputEventKind, InputEventData, MouseButtons};
 use core::ptr::read_volatile;
 use core::ptr::write_volatile;
+use arrayvec::ArrayVec;
+use spin::Mutex;
 
 const PS2_DATA_PORT: u16 = 0x60;
 const PS2_STATUS_PORT: u16 = 0x64;
@@ -15,6 +17,7 @@ pub struct Ps2Mouse {
     packet: [u8; 3],
     packet_idx: usize,
     buttons: MouseButtons,
+    event_queue: Mutex<ArrayVec<InputEvent, 64>>,
 }
 
 impl Ps2Mouse {
@@ -24,6 +27,7 @@ impl Ps2Mouse {
             packet: [0u8; 3],
             packet_idx: 0,
             buttons: MouseButtons::empty(),
+            event_queue: Mutex::new(ArrayVec::new()),
         }
     }
 
@@ -43,7 +47,6 @@ impl Ps2Mouse {
 
     fn read_data(&self) -> u8 {
         unsafe {
-            while (read_volatile(PS2_STATUS_PORT as *const u8) & 0x01) == 0 {}
             read_volatile(PS2_DATA_PORT as *const u8)
         }
     }
@@ -51,6 +54,44 @@ impl Ps2Mouse {
     fn wait_ack(&self) -> bool {
         let byte = self.read_data();
         byte == 0xFA // ACK
+    }
+
+    /// Interrupt handler for mouse
+    pub fn irq_handler(&mut self) {
+        unsafe {
+            if (read_volatile(PS2_STATUS_PORT as *const u8) & 0x01) == 0 {
+                return;
+            }
+        }
+
+        self.packet[self.packet_idx] = self.read_data();
+        self.packet_idx += 1;
+
+        if self.packet_idx == 3 {
+            self.packet_idx = 0;
+            let [flags, dx, dy] = self.packet;
+            let dx = dx as i8 as i32;
+            let dy = dy as i8 as i32;
+            
+            self.buttons = MouseButtons::empty();
+            if flags & 0x01 != 0 { self.buttons |= MouseButtons::LEFT; }
+            if flags & 0x02 != 0 { self.buttons |= MouseButtons::RIGHT; }
+            if flags & 0x04 != 0 { self.buttons |= MouseButtons::MIDDLE; }
+
+            let event = InputEvent {
+                timestamp: 0,
+                device_type: InputDeviceType::Mouse,
+                event_kind: InputEventKind::MouseMove,
+                data: InputEventData::Mouse {
+                    x: dx, y: -dy, // PS/2 mouse Y is inverted
+                    buttons: self.buttons,
+                    wheel_delta: 0
+                }
+            };
+
+            let mut queue = self.event_queue.lock();
+            let _ = queue.try_push(event);
+        }
     }
 }
 
@@ -98,40 +139,7 @@ impl InputDriver for Ps2Mouse {
     }
 
     fn get_event(&mut self) -> Option<InputEvent> {
-        // Check data available
-        unsafe {
-            if (read_volatile(PS2_STATUS_PORT as *const u8) & 0x01) == 0 {
-                return None;
-            }
-        }
-
-        self.packet[self.packet_idx] = self.read_data();
-        self.packet_idx += 1;
-
-        if self.packet_idx == 3 {
-            self.packet_idx = 0;
-            let [flags, dx, dy] = self.packet;
-            let dx = dx as i8 as i32;
-            let dy = dy as i8 as i32;
-            
-            // Update button state
-            self.buttons = MouseButtons::empty();
-            if flags & 0x01 != 0 { self.buttons |= MouseButtons::LEFT; }
-            if flags & 0x02 != 0 { self.buttons |= MouseButtons::RIGHT; }
-            if flags & 0x04 != 0 { self.buttons |= MouseButtons::MIDDLE; }
-
-            return Some(InputEvent {
-                timestamp: 0,
-                device_type: InputDeviceType::Mouse,
-                event_kind: InputEventKind::MouseMove,
-                data: InputEventData::Mouse {
-                    x: dx, y: -dy, // PS/2 mouse Y is inverted
-                    buttons: self.buttons,
-                    wheel_delta: 0
-                }
-            });
-        }
-        None
+        self.event_queue.lock().pop_at(0)
     }
 
     fn set_event_callback(&mut self, _callback: Option<fn(&InputEvent)>) {}

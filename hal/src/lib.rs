@@ -140,6 +140,7 @@ pub mod connectivity;
 pub mod usb;
 pub mod audio;
 pub mod sensors;
+pub mod fs;
 
 // Architecture-specific modules
 #[cfg(target_arch = "aarch64")]

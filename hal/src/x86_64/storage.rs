@@ -6,7 +6,8 @@ use crate::storage::{StorageDriver, StorageError, StorageDevice, StorageType, St
                    StorageStatistics, PowerMode};
 use arrayvec::ArrayVec;
 use core::ptr::write_volatile;
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::{AtomicU64, AtomicBool, Ordering};
+use spin::Mutex;
 
 // RAM Disk definitions
 const RAM_DISK_SIZE: usize = 64 * 1024 * 1024;
@@ -23,6 +24,10 @@ static WRITES: AtomicU64 = AtomicU64::new(0);
 // ATA/IDE definitions
 const ATA_PRIMARY_BASE: u16 = 0x1F0;
 const ATA_PRIMARY_CTRL: u16 = 0x3F6;
+
+// ATA IRQ state
+static ATA_IRQ_PENDING: AtomicBool = AtomicBool::new(false);
+static ATA_BUFFER: Mutex<Option<&'static mut [u8]>> = Mutex::new(None);
 
 // I/O port functions
 #[cfg(target_arch = "x86_64")]
@@ -47,6 +52,15 @@ unsafe fn inw(port: u16) -> u16 {
 #[cfg(target_arch = "x86_64")]
 unsafe fn outw(port: u16, value: u16) {
     core::arch::asm!("out dx, ax", in("dx") port, in("ax") value, options(nomem, nostack, preserves_flags));
+}
+
+/// ATA IRQ handler
+pub fn ata_irq_handler() {
+    unsafe {
+        // Read status register to clear interrupt
+        let _status = inb(ATA_PRIMARY_BASE + 7);
+    }
+    ATA_IRQ_PENDING.store(true, Ordering::Release);
 }
 
 /// x86_64 storage driver

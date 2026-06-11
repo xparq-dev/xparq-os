@@ -4,6 +4,7 @@
 
 use core::ptr::{read_volatile, write_volatile};
 use arrayvec::ArrayVec;
+use spin::Mutex;
 
 /// PCIe Configuration Space Address (ECAM - Enhanced Configuration Access Mechanism)
 const ECAM_BASE: u64 = 0xE0000000;
@@ -65,9 +66,21 @@ pub struct PciDeviceInfo {
     pub interrupt_pin: u8,
 }
 
+/// PCIe Driver Trait
+pub trait PciDriver: Send + Sync {
+    fn probe(&self, dev: &PciDeviceInfo) -> Result<(), ()>;
+    fn get_supported_devices(&self) -> &'static [(u16, u16)]; // (vendor, device)
+}
+
+/// PCIe Driver Registry Entry
+struct PciDriverEntry {
+    driver: &'static dyn PciDriver,
+}
+
 /// PCIe Bus Manager
 pub struct PciBusManager {
     devices: ArrayVec<PciDeviceInfo, 32>, // Up to 32 devices for now
+    drivers: ArrayVec<PciDriverEntry, 16>, // Up to 16 drivers
 }
 
 impl PciBusManager {
@@ -75,6 +88,26 @@ impl PciBusManager {
     pub const fn new() -> Self {
         Self {
             devices: ArrayVec::new_const(),
+            drivers: ArrayVec::new_const(),
+        }
+    }
+
+    /// Register a PCI driver
+    pub fn register_driver(&mut self, driver: &'static dyn PciDriver) {
+        self.drivers.push(PciDriverEntry { driver });
+    }
+
+    /// Bind all registered drivers to devices
+    pub fn bind_drivers(&mut self) {
+        for dev in &self.devices {
+            for entry in &self.drivers {
+                let supported = entry.driver.get_supported_devices();
+                for (vid, did) in supported {
+                    if dev.device_id.vendor_id == *vid && dev.device_id.device_id == *did {
+                        let _ = entry.driver.probe(dev);
+                    }
+                }
+            }
         }
     }
 
@@ -257,19 +290,37 @@ impl PciBusManager {
     }
 }
 
-/// Static PCIe Bus Manager instance
-pub static mut PCI_BUS_MANAGER: PciBusManager = PciBusManager::new();
+/// Static PCIe Bus Manager instance (protected by Mutex)
+pub static mut PCI_BUS_MANAGER: Mutex<PciBusManager> = Mutex::new(PciBusManager::new());
 
 /// Initialize PCIe bus manager
 pub fn init() -> Result<(), super::HalError> {
     unsafe {
-        PCI_BUS_MANAGER.init()
+        PCI_BUS_MANAGER.lock().init()
     }
 }
 
 /// Get list of enumerated PCI devices
 pub fn get_devices() -> &'static [PciDeviceInfo] {
     unsafe {
-        PCI_BUS_MANAGER.devices()
+        // This is a bit hacky, but for simplicity:
+        static mut DEVICES: Option<&[PciDeviceInfo]> = None;
+        let mgr = PCI_BUS_MANAGER.lock();
+        DEVICES = Some(mgr.devices());
+        DEVICES.unwrap()
+    }
+}
+
+/// Register a PCI driver
+pub fn register_driver(driver: &'static dyn PciDriver) {
+    unsafe {
+        PCI_BUS_MANAGER.lock().register_driver(driver);
+    }
+}
+
+/// Bind all drivers to devices
+pub fn bind_drivers() {
+    unsafe {
+        PCI_BUS_MANAGER.lock().bind_drivers();
     }
 }

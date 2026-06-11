@@ -3,17 +3,28 @@
 use crate::x86_64::acpi;
 use core::ptr::{read_volatile, write_volatile};
 use arrayvec::ArrayVec;
+use spin::Mutex;
 
 /// Local APIC register offsets
 const LAPIC_ID: usize = 0x0020;
 const LAPIC_SPURIOUS: usize = 0x00F0;
 const LAPIC_EOI: usize = 0x00B0;
+const LAPIC_TPR: usize = 0x0080; // Task Priority Register
+const LAPIC_TIMER_LVT: usize = 0x0320; // Timer LVT Entry
+const LAPIC_TIMER_INITIAL: usize = 0x0380; // Initial Count
+const LAPIC_TIMER_CURRENT: usize = 0x0390; // Current Count
+const LAPIC_TIMER_DIVIDE: usize = 0x03E0; // Divide Configuration Register
 
 /// I/O APIC register offsets
 const IOAPIC_IDX: usize = 0x0000;
 const IOAPIC_WIN: usize = 0x0010;
 const IOAPIC_REG_VER: usize = 0x01;
 const IOAPIC_REG_TABLE_LOW: usize = 0x10;
+
+/// System tick counter
+pub static TICKS: Mutex<u64> = Mutex::new(0);
+/// Timer interrupt vector
+const TIMER_VECTOR: u8 = 32;
 
 /// Local APIC state
 #[derive(Debug, Clone, Copy)]
@@ -54,6 +65,37 @@ impl LocalApic {
     pub fn eoi(&self) {
         unsafe { self.write_register(LAPIC_EOI, 0); }
     }
+
+    /// Initialize LAPIC timer in periodic mode (approx 1ms ticks)
+    pub fn init_timer(&self) {
+        unsafe {
+            // Set divide configuration to 16
+            self.write_register(LAPIC_TIMER_DIVIDE, 0x3); // 0b0011 = divide by 16
+
+            // Set LVT timer entry: periodic, vector TIMER_VECTOR, unmasked
+            self.write_register(LAPIC_TIMER_LVT, (TIMER_VECTOR as u32) | (0x2 << 17)); // 0x2 = periodic
+
+            // Calibrate initial count (approx 1ms - we'll use a simple value for now)
+            self.write_register(LAPIC_TIMER_INITIAL, 1000000); // This will need calibration
+        }
+    }
+}
+
+/// Timer interrupt handler (called from irq_dispatch)
+pub fn timer_handler() {
+    let mut ticks = TICKS.lock();
+    *ticks += 1;
+    drop(ticks);
+    unsafe {
+        if let Some(lapic) = &LOCAL_APIC {
+            lapic.eoi();
+        }
+    }
+}
+
+/// Get current tick count
+pub fn get_ticks() -> u64 {
+    *TICKS.lock()
 }
 
 /// I/O APIC state

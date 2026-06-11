@@ -4,6 +4,8 @@
 use crate::input::{InputDriver, InputError, InputDeviceInfo, InputDeviceType, InputCapabilities, InputEvent, InputEventKind, InputEventData, Modifiers};
 use core::ptr::write_volatile;
 use core::ptr::read_volatile;
+use arrayvec::ArrayVec;
+use spin::Mutex;
 
 /// Port addresses for PS/2 controller
 const PS2_DATA_PORT: u16 = 0x60;
@@ -14,6 +16,7 @@ const PS2_COMMAND_PORT: u16 = 0x64;
 pub struct Ps2Keyboard {
     initialized: bool,
     modifiers: Modifiers,
+    event_queue: Mutex<ArrayVec<InputEvent, 64>>,
 }
 
 impl Ps2Keyboard {
@@ -22,6 +25,7 @@ impl Ps2Keyboard {
         Self {
             initialized: false,
             modifiers: Modifiers::empty(),
+            event_queue: Mutex::new(ArrayVec::new()),
         }
     }
 
@@ -48,6 +52,56 @@ impl Ps2Keyboard {
             write_volatile(PS2_COMMAND_PORT as *mut u8, cmd);
         }
     }
+
+    /// Interrupt handler for keyboard
+    pub fn irq_handler(&mut self) {
+        unsafe {
+            if (read_volatile(PS2_STATUS_PORT as *const u8) & 0x01) == 0 {
+                return;
+            }
+        }
+
+        let scancode = self.read_data();
+        let keycode = scancode & 0x7F;
+        let pressed = (scancode & 0x80) == 0;
+
+        match keycode {
+            0x2A => {
+                if pressed { self.modifiers |= Modifiers::SHIFT; }
+                else { self.modifiers &= !Modifiers::SHIFT; }
+            }
+            0x36 => {
+                if pressed { self.modifiers |= Modifiers::SHIFT; }
+                else { self.modifiers &= !Modifiers::SHIFT; }
+            }
+            0x1D => {
+                if pressed { self.modifiers |= Modifiers::CTRL; }
+                else { self.modifiers &= !Modifiers::CTRL; }
+            }
+            0x38 => {
+                if pressed { self.modifiers |= Modifiers::ALT; }
+                else { self.modifiers &= !Modifiers::ALT; }
+            }
+            0x3A => {
+                if pressed { self.modifiers ^= Modifiers::CAPS_LOCK; }
+            }
+            _ => {}
+        }
+
+        let event = InputEvent {
+            timestamp: 0,
+            device_type: InputDeviceType::Keyboard,
+            event_kind: if pressed { InputEventKind::KeyDown } else { InputEventKind::KeyUp },
+            data: InputEventData::Key {
+                keycode: keycode as u32,
+                scancode: scancode as u32,
+                modifiers: self.modifiers,
+            },
+        };
+
+        let mut queue = self.event_queue.lock();
+        let _ = queue.try_push(event);
+    }
 }
 
 impl InputDriver for Ps2Keyboard {
@@ -57,34 +111,21 @@ impl InputDriver for Ps2Keyboard {
 
     fn init(&mut self) -> Result<(), InputError> {
         // Initialize PS/2 controller
-        // Step 1: Disable first and second PS/2 ports
-        self.write_command(0xAD); // Disable first port
-        self.write_command(0xA7); // Disable second port
-
-        // Step 2: Flush output buffer
+        self.write_command(0xAD);
+        self.write_command(0xA7);
         let _ = self.read_data();
-
-        // Step 3: Set configuration byte
-        self.write_command(0x20); // Read configuration byte
+        self.write_command(0x20);
         let mut config = self.read_data();
-        config &= !0x10; // Disable first port IRQ
-        config &= !0x20; // Disable second port IRQ
-        config &= !0x40; // Disable translation
-        self.write_command(0x60); // Write configuration byte
+        config |= 0x01; // Enable first port IRQ
+        config &= !0x20;
+        config &= !0x40;
+        self.write_command(0x60);
         self.write_data(config);
-
-        // Step 4: Perform controller self-test
         self.write_command(0xAA);
-        if self.read_data() != 0x55 {
-            return Err(InputError::HardwareFailure);
-        }
-
-        // Step 5: Enable first PS/2 port
+        if self.read_data() != 0x55 { return Err(InputError::HardwareFailure); }
         self.write_command(0xAE);
-
-        // Step 6: Reset keyboard
-        self.write_data(0xFF); // Reset
-        let _ = self.read_data(); // Read ACK (0xFA)
+        self.write_data(0xFF);
+        let _ = self.read_data();
 
         self.initialized = true;
         Ok(())
@@ -107,77 +148,10 @@ impl InputDriver for Ps2Keyboard {
     }
 
     fn get_event(&mut self) -> Option<InputEvent> {
-        // Check if there's data available
-        unsafe {
-            if (read_volatile(PS2_STATUS_PORT as *const u8) & 0x01) == 0 {
-                return None;
-            }
-        }
-
-        let scancode = self.read_data();
-
-        // Very basic scancode handling (for demonstration)
-        let keycode = scancode & 0x7F;
-        let pressed = (scancode & 0x80) == 0;
-
-        // Update modifiers
-        match keycode {
-            0x2A => {
-                // Left Shift
-                if pressed {
-                    self.modifiers |= Modifiers::SHIFT;
-                } else {
-                    self.modifiers &= !Modifiers::SHIFT;
-                }
-            }
-            0x36 => {
-                // Right Shift
-                if pressed {
-                    self.modifiers |= Modifiers::SHIFT;
-                } else {
-                    self.modifiers &= !Modifiers::SHIFT;
-                }
-            }
-            0x1D => {
-                // Left Ctrl
-                if pressed {
-                    self.modifiers |= Modifiers::CTRL;
-                } else {
-                    self.modifiers &= !Modifiers::CTRL;
-                }
-            }
-            0x38 => {
-                // Left Alt
-                if pressed {
-                    self.modifiers |= Modifiers::ALT;
-                } else {
-                    self.modifiers &= !Modifiers::ALT;
-                }
-            }
-            0x3A => {
-                // Caps Lock (toggle on press)
-                if pressed {
-                    self.modifiers ^= Modifiers::CAPS_LOCK;
-                }
-            }
-            _ => {}
-        }
-
-        Some(InputEvent {
-            timestamp: 0, // TODO: Implement proper timestamp
-            device_type: InputDeviceType::Keyboard,
-            event_kind: if pressed { InputEventKind::KeyDown } else { InputEventKind::KeyUp },
-            data: InputEventData::Key {
-                keycode: keycode as u32,
-                scancode: scancode as u32,
-                modifiers: self.modifiers,
-            },
-        })
+        self.event_queue.lock().pop_at(0)
     }
 
-    fn set_event_callback(&mut self, _callback: Option<fn(&InputEvent)>) {
-        // TODO: Implement callbacks
-    }
+    fn set_event_callback(&mut self, _callback: Option<fn(&InputEvent)>) {}
 
     fn set_enabled(&mut self, _enabled: bool) -> Result<(), InputError> {
         Ok(())
