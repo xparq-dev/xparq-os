@@ -112,21 +112,35 @@ For x86-64, the runtime image is `build/x86-64/disk.img`.
 
 ## Development Phases
 
-### Phase 1: OS & Kernel Foundations
+### Phase 1: OS & Kernel Foundations ✅
 - Zircon kernel study and customization
 - Object-capability security model implementation
 - Basic multi-architecture support
+- Display pipeline (VGA text/VBE framebuffer on x86-64)
+- Input subsystem (PS/2 keyboard/mouse)
+- Power management (reboot/shutdown)
+- Storage (RAM disk + ATA/IDE PIO)
+- PCI enumeration
+- Audio (simple)
 
-### Phase 2: Dev Environment Multi-Arch
+### Phase 2: Dev Environment Multi-Arch ✅
 - Cross-compilation pipeline
-- Architecture-specific bootloaders
+- Architecture-specific bootloaders (NASM x86-64)
 - FIDL protocol definitions
+- Full IRQ and interrupt controller support (8259 PIC + LAPIC/IOAPIC)
+- LAPIC timer support
+- PCI driver binding system
+- Storage stack enhancements (AHCI driver skeleton, NVMe skeleton)
+- Filesystem support (MBR, FAT32)
 
-### Phase 3: Hardware Abstraction Layer
+### Phase 3: Hardware Abstraction Layer (In Progress)
 - Display pipeline (Mali/DRM on ARM, Intel/AMD on x86)
 - Input subsystem
 - Connectivity stack
 - Power management
+- USB host support
+- More filesystems (EXT2, NTFS, etc.)
+- Full GPT support
 
 ### Phase 3.5: PC Platform Layer (x86-64 only)
 - Desktop shell mode
