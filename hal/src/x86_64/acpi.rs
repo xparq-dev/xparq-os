@@ -2,9 +2,11 @@
 // ACPI driver
 
 use core::ptr::read_volatile;
+use arrayvec::ArrayVec;
 
 /// ACPI RSDP (Root System Description Pointer) structure
 #[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
 struct Rsdp {
     signature: [u8; 8],       // "RSD PTR "
     checksum: u8,
@@ -19,6 +21,7 @@ struct Rsdp {
 
 /// ACPI common header for all tables
 #[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
 struct AcpiHeader {
     signature: [u8; 4],    // e.g., "RSDT", "XSDT", "FACP", "MADT"
     length: u32,
@@ -29,6 +32,23 @@ struct AcpiHeader {
     oem_revision: u32,
     asl_compiler_id: [u8; 4],
     asl_compiler_revision: u32,
+}
+
+impl AcpiHeader {
+    unsafe fn is_valid(&self, expected_signature: &[u8; 4]) -> bool {
+        if &self.signature != expected_signature {
+            return false;
+        }
+
+        // Verify checksum
+        let mut sum: u8 = 0;
+        let ptr = self as *const u8;
+        for i in 0..self.length as usize {
+            sum = sum.wrapping_add(*ptr.add(i));
+        }
+
+        sum == 0
+    }
 }
 
 impl Rsdp {
@@ -81,23 +101,181 @@ pub unsafe fn find_rsdp() -> Option<&'static Rsdp> {
     None
 }
 
-/// RSDT (Root System Description Table)
-struct Rsdt {
-    header: AcpiHeader,
-    // Followed by array of u32 addresses
+/// Find table with specific signature via RSDT/XSDT
+pub unsafe fn find_table(rsdp: &Rsdp, signature: &[u8; 4]) -> Option<u64> {
+    if rsdp.revision >= 2 {
+        // Use XSDT
+        let xsdt_ptr = rsdp.xsdt_address as *const AcpiHeader;
+        let xsdt = &*xsdt_ptr;
+        if xsdt.is_valid(b"XSDT") {
+            let entry_count = (xsdt.length as usize - core::mem::size_of::<AcpiHeader>()) / 8;
+            let entries_ptr = (rsdp.xsdt_address as usize + core::mem::size_of::<AcpiHeader>()) as *const u64;
+            for i in 0..entry_count {
+                let table_addr = *entries_ptr.add(i);
+                let header = &*(table_addr as *const AcpiHeader);
+                if header.is_valid(signature) {
+                    return Some(table_addr);
+                }
+            }
+        }
+    } else {
+        // Use RSDT
+        let rsdt_ptr = rsdp.rsdt_address as u64 as *const AcpiHeader;
+        let rsdt = &*rsdt_ptr;
+        if rsdt.is_valid(b"RSDT") {
+            let entry_count = (rsdt.length as usize - core::mem::size_of::<AcpiHeader>()) / 4;
+            let entries_ptr = (rsdp.rsdt_address as usize + core::mem::size_of::<AcpiHeader>()) as *const u32;
+            for i in 0..entry_count {
+                let table_addr = *entries_ptr.add(i) as u64;
+                let header = &*(table_addr as *const AcpiHeader);
+                if header.is_valid(signature) {
+                    return Some(table_addr);
+                }
+            }
+        }
+    }
+    None
 }
 
-/// XSDT (Extended Root System Description Table)
-struct Xsdt {
+/// MADT (Multiple APIC Description Table)
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+struct Madt {
     header: AcpiHeader,
-    // Followed by array of u64 addresses
+    local_apic_address: u32,
+    flags: u32,
+    // Followed by variable-length MADT structures
+}
+
+/// MADT structure types
+const MADT_TYPE_LAPIC: u8 = 0;     // Processor Local APIC
+const MADT_TYPE_IOAPIC: u8 = 1;    // I/O APIC
+const MADT_TYPE_INT_OVERRIDE: u8 = 2; // Interrupt Source Override
+
+/// Processor Local APIC MADT entry
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+struct MadtEntryLapic {
+    type_: u8,
+    length: u8,
+    processor_id: u8,
+    apic_id: u8,
+    flags: u32,
+}
+
+/// I/O APIC MADT entry
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+struct MadtEntryIoapic {
+    type_: u8,
+    length: u8,
+    ioapic_id: u8,
+    reserved: u8,
+    ioapic_address: u32,
+    global_system_interrupt_base: u32,
+}
+
+/// Interrupt Source Override MADT entry
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+struct MadtEntryIntOverride {
+    type_: u8,
+    length: u8,
+    bus: u8,
+    source: u8,
+    global_system_interrupt: u32,
+    flags: u16,
+}
+
+/// Parsed MADT information
+#[derive(Debug, Clone, Default)]
+pub struct MadtInfo {
+    pub local_apic_address: u32,
+    pub lapics: ArrayVec<MadtEntryLapic, 32>,
+    pub ioapics: ArrayVec<MadtEntryIoapic, 8>,
+    pub int_overrides: ArrayVec<MadtEntryIntOverride, 32>,
+}
+
+pub unsafe fn parse_madt(madt_addr: u64) -> Result<MadtInfo, ()> {
+    let header_ptr = madt_addr as *const AcpiHeader;
+    let header = &*header_ptr;
+
+    if !header.is_valid(b"APIC") {
+        return Err(());
+    }
+
+    let madt_ptr = madt_addr as *const Madt;
+    let madt = &*madt_ptr;
+
+    let mut info = MadtInfo {
+        local_apic_address: madt.local_apic_address,
+        lapics: ArrayVec::new(),
+        ioapics: ArrayVec::new(),
+        int_overrides: ArrayVec::new(),
+    };
+
+    // Parse MADT entries
+    let mut offset = core::mem::size_of::<Madt>();
+    let madt_len = header.length as usize;
+
+    while offset < madt_len {
+        let entry_ptr = (madt_addr as usize + offset) as *const u8;
+        let type_ = *entry_ptr;
+        let length = *entry_ptr.add(1) as usize;
+
+        match type_ {
+            MADT_TYPE_LAPIC => {
+                let lapic = &*(entry_ptr as *const MadtEntryLapic);
+                if (lapic.flags & 0x01) != 0 {
+                    let _ = info.lapics.try_push(*lapic);
+                }
+            }
+            MADT_TYPE_IOAPIC => {
+                let ioapic = &*(entry_ptr as *const MadtEntryIoapic);
+                let _ = info.ioapics.try_push(*ioapic);
+            }
+            MADT_TYPE_INT_OVERRIDE => {
+                let int_override = &*(entry_ptr as *const MadtEntryIntOverride);
+                let _ = info.int_overrides.try_push(*int_override);
+            }
+            _ => {}
+        }
+
+        offset += length;
+    }
+
+    Ok(info)
+}
+
+/// ACPI global state
+pub static mut ACPI_STATE: AcpiState = AcpiState::new();
+
+#[derive(Debug, Clone, Default)]
+pub struct AcpiState {
+    pub initialized: bool,
+    pub madt: Option<MadtInfo>,
+}
+
+impl AcpiState {
+    const fn new() -> Self {
+        Self {
+            initialized: false,
+            madt: None,
+        }
+    }
 }
 
 /// Initialize ACPI subsystem
 pub fn init() -> Result<(), ()> {
     unsafe {
         if let Some(rsdp) = find_rsdp() {
-            // TODO: parse RSDT/XSDT, find important tables (FACP, MADT, etc.)
+            // Find MADT
+            if let Some(madt_addr) = find_table(rsdp, b"APIC") {
+                if let Ok(madt_info) = parse_madt(madt_addr) {
+                    ACPI_STATE.madt = Some(madt_info);
+                }
+            }
+            ACPI_STATE.initialized = true;
         }
     }
     Ok(())
