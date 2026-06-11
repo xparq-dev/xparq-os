@@ -183,19 +183,22 @@ pub extern "C" fn kernel_main() -> ! {
         // Phase 3: Initialize HAL display
         #[cfg(target_arch = "x86_64")]
         {
-            uart_puts(b"[XPARQ OS] Initializing VGA display...\n");
-            let mut vga_display = hal::x86_64::display::VgaTextDisplay::new();
-            if vga_display.init().is_ok() {
-                uart_puts(b"[XPARQ OS] VGA display initialized successfully!\n");
-                // Use our improved VGA driver
-                vga_display.set_colors(hal::x86_64::display::VgaColor::White, hal::x86_64::display::VgaColor::Blue);
-                writeln!(&mut vga_display, "XPARQ OS - Phase 3 HAL Initialized!").unwrap();
-                writeln!(&mut vga_display, "Welcome to XPARQ OS!").unwrap();
-                writeln!(&mut vga_display, "Type something or move the mouse: ").unwrap();
-                // Initialize mouse cursor at center
-                vga_display.set_mouse_pos(40, 12);
+            uart_puts(b"[XPARQ OS] Initializing HAL display subsystem...\n");
+            if hal::init().is_ok() {
+                uart_puts(b"[XPARQ OS] HAL initialized successfully!\n");
+                // Now use the VGA display from HAL
+                if let Some(mut vga) = hal::x86_64::VGA_DISPLAY.lock().take() {
+                    vga.set_colors(hal::x86_64::display::VgaColor::White, hal::x86_64::display::VgaColor::Blue);
+                    writeln!(&mut vga, "XPARQ OS - Phase 3 HAL Initialized!").unwrap();
+                    writeln!(&mut vga, "Welcome to XPARQ OS!").unwrap();
+                    writeln!(&mut vga, "Type something or move the mouse: ").unwrap();
+                    // Initialize mouse cursor at center
+                    vga.set_mouse_pos(40, 12);
+                    // Put it back
+                    *hal::x86_64::VGA_DISPLAY.lock() = Some(vga);
+                }
             } else {
-                uart_puts(b"[XPARQ OS] Failed to initialize VGA display\n");
+                uart_puts(b"[XPARQ OS] Failed to initialize HAL\n");
             }
         }
 
@@ -218,48 +221,45 @@ pub extern "C" fn kernel_main() -> ! {
 
         uart_puts(b"[XPARQ OS] Kernel initialized.\n");
         
-        // Initialize keyboard and mouse (x86_64 only for now)
+        // Initialize keyboard and mouse (x86_64 only for now) - using HAL input subsystem
         #[cfg(target_arch = "x86_64")]
         {
-            uart_puts(b"[XPARQ OS] Initializing PS/2 keyboard and mouse...\n");
-            let mut keyboard = hal::x86_64::keyboard::Ps2Keyboard::new();
-            let mut mouse = hal::x86_64::mouse::Ps2Mouse::new();
-            let mut vga_display = hal::x86_64::display::VgaTextDisplay::new();
-            vga_display.init().ok();
-            vga_display.set_cursor(0, 4);
-            vga_display.set_mouse_pos(40, 12); // Center mouse
+            uart_puts(b"[XPARQ OS] Input subsystem ready!\n");
+            uart_puts(b"[XPARQ OS] Waiting for input...\n");
             
-            if keyboard.init().is_ok() && mouse.init().is_ok() {
-                uart_puts(b"[XPARQ OS] Keyboard and mouse initialized successfully!\n");
-                uart_puts(b"[XPARQ OS] Waiting for input...\n");
-                
-                loop {
-                    // Check keyboard events
-                    if let Some(event) = keyboard.get_event() {
-                        if let hal::input::InputEventData::Key { keycode, modifiers, .. } = event.data {
-                            // Handle printable characters
-                            if let Some(character) = hal::input::utils::keycode_to_char(keycode, modifiers) {
-                                vga_display.write_char_at_cursor(character as u8);
-                            }
+            loop {
+                // Check events from HAL input manager
+                if let Some(mut manager) = hal::input::get_input_manager_mut() {
+                    while let Some(event) = manager.get_event() {
+                        match event.data {
+                            hal::input::InputEventData::Key { keycode, modifiers, .. } => {
+                                // Handle printable characters
+                                if let Some(character) = hal::input::utils::keycode_to_char(keycode, modifiers) {
+                                    // Get VGA display from HAL
+                                    if let Some(mut vga) = hal::x86_64::VGA_DISPLAY.lock().take() {
+                                        vga.write_char_at_cursor(character as u8);
+                                        *hal::x86_64::VGA_DISPLAY.lock() = Some(vga);
+                                    }
+                                }
+                            },
+                            hal::input::InputEventData::Mouse { x, y, .. } => {
+                                // Get VGA display from HAL
+                                if let Some(mut vga) = hal::x86_64::VGA_DISPLAY.lock().take() {
+                                    vga.move_mouse(x, y);
+                                    *hal::x86_64::VGA_DISPLAY.lock() = Some(vga);
+                                }
+                            },
+                            _ => {}
                         }
                     }
-                    
-                    // Check mouse events
-                    if let Some(event) = mouse.get_event() {
-                        if let hal::input::InputEventData::Mouse { x, y, .. } = event.data {
-                            vga_display.move_mouse(x, y);
-                        }
-                    }
-                    
-                    #[cfg(target_arch = "x86_64")]
-                    unsafe {
-                        core::arch::asm!("cli; hlt", options(nomem, nostack));
-                    }
-                    #[cfg(not(target_arch = "x86_64"))]
-                    core::hint::spin_loop();
                 }
-            } else {
-                uart_puts(b"[XPARQ OS] Failed to initialize keyboard or mouse\n");
+                
+                #[cfg(target_arch = "x86_64")]
+                unsafe {
+                    core::arch::asm!("cli; hlt", options(nomem, nostack));
+                }
+                #[cfg(not(target_arch = "x86_64"))]
+                core::hint::spin_loop();
             }
         }
     }

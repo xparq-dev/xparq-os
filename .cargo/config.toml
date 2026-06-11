@@ -2,10 +2,6 @@
 # Cargo Configuration for Cross-Compilation
 # Phase 2: Dev Environment Setup
 
-[build]
-# Default target for the workspace
-target = "x86_64-unknown-none"
-
 [target.aarch64-unknown-none]
 # ARM64 bare-metal target configuration
 runner = "qemu-system-aarch64 -machine virt -cpu cortex-a72 -m 512M -nographic -semihosting -semihosting-config enable=on,target=native -kernel"
@@ -107,8 +103,8 @@ default = "crates-io"
 
 # Source configuration
 [source.crates-io]
-# Standard crates.io registry
-registry = "https://github.com/rust-lang/crates.io-index"
+# Use the standard sparse crates.io index for modern Cargo compatibility
+registry = "sparse+https://index.crates.io/"
 
 # Patch configurations for local development
 [patch.crates-io]

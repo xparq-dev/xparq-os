@@ -7,34 +7,27 @@ Write-Host "=== XPARQ OS Build and Test ==="
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 Set-Location $RepoRoot
 
-# Convert kernel to binary
-$rustc = & rustup which rustc
-$dir = Split-Path $rustc
-$toolchainDir = Split-Path $dir
-$objcopy = (Get-ChildItem -Path $toolchainDir -Filter "llvm-objcopy.exe" -Recurse | Select-Object -First 1).FullName
-
-Write-Host "Converting kernel using: $objcopy"
-$kernelElf = "target\x86_64-unknown-none\release\xparq_kernel"
-if (-not (Test-Path $kernelElf)) {
-    Write-Host "Kernel ELF not found. Building xparq-kernel..."
-    cargo build --target x86_64-unknown-none --release --package xparq-kernel
+# First build the bootloader with NASM
+Write-Host "Building bootloader..."
+$nasm = "$RepoRoot\third_party\nasm\nasm-2.16.03\nasm.exe"
+& $nasm -f bin "$RepoRoot\bootloader\x86_64\src\boot.asm" -o "$RepoRoot\build\x86-64\bootloader.bin"
+if ($LASTEXITCODE -ne 0) {
+    throw "NASM failed to build bootloader"
 }
-if (-not (Test-Path $kernelElf)) {
-    throw "Kernel ELF still missing: $kernelElf"
-}
-& $objcopy -O binary $kernelElf "build\x86-64\kernel.bin"
 
-# Check result
-$kernel = [System.IO.File]::ReadAllBytes("build\x86-64\kernel.bin")
-Write-Host "Kernel binary size: $($kernel.Length) bytes"
-Write-Host "First 8 bytes: $($kernel[0..7] | ForEach-Object { '0x' + $_.ToString('X2') })" -Separator " "
+# Now build the kernel and convert to flat binary
+Write-Host "Building kernel and converting to flat binary..."
+& "$RepoRoot\tools\windows\make-flat-kernel.ps1"
 
-# Create disk image
+# Create disk image padded to 16KB (32 sectors) for BIOS compatibility
 $bootloader = [System.IO.File]::ReadAllBytes("build\x86-64\bootloader.bin")
-$combined = New-Object byte[] ($bootloader.Length + $kernel.Length)
+$kernel = [System.IO.File]::ReadAllBytes("build\x86-64\kernel.bin")
+$targetSize = 16384
+$combined = New-Object byte[] $targetSize
 [System.Array]::Copy($bootloader, 0, $combined, 0, $bootloader.Length)
 [System.Array]::Copy($kernel, 0, $combined, $bootloader.Length, $kernel.Length)
 [System.IO.File]::WriteAllBytes("build\x86-64\disk.img", $combined)
-Write-Host "Created disk.img: $($combined.Length) bytes"
 
+Write-Host "Kernel binary size: $($kernel.Length) bytes"
+Write-Host "Created disk.img: $($combined.Length) bytes ($($combined.Length/512) sectors)"
 Write-Host "=== Build Complete ==="

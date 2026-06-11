@@ -20,7 +20,7 @@ static_assertions = "1.1"
 arrayvec = { version = "0.7", default-features = false }
 
 # ARM64-specific dependencies
-aarch64-cpu = "9.4"
+aarch64-cpu = { workspace = true }
 tock-registers = "0.8"
 
 # UEFI dependencies (optional)

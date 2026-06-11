@@ -325,10 +325,33 @@ impl InputManager {
         Ok(())
     }
     
-    /// Collect events from all devices - simplified for no_std
+    /// Collect events from all devices
     pub fn collect_events(&mut self) -> Result<(), InputError> {
-        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
-        // Phase 2: Use trait objects without heap allocation
+        #[cfg(target_arch = "x86_64")]
+        {
+            // Collect keyboard events
+            if let Some(mut keyboard) = crate::x86_64::PS2_KEYBOARD.lock().take() {
+                while let Some(event) = keyboard.get_event() {
+                    if let Err(_) = self.event_queue.try_push(event) {
+                        // Queue full - just drop the event for now
+                    }
+                }
+                // Put it back
+                *crate::x86_64::PS2_KEYBOARD.lock() = Some(keyboard);
+            }
+            
+            // Collect mouse events
+            if let Some(mut mouse) = crate::x86_64::PS2_MOUSE.lock().take() {
+                while let Some(event) = mouse.get_event() {
+                    if let Err(_) = self.event_queue.try_push(event) {
+                        // Queue full - just drop the event for now
+                    }
+                }
+                // Put it back
+                *crate::x86_64::PS2_MOUSE.lock() = Some(mouse);
+            }
+        }
+        
         Ok(())
     }
     
@@ -387,20 +410,34 @@ pub fn init() -> Result<(), super::HalError> {
         INPUT_MANAGER = Some(InputManager::new());
         INPUT_MANAGER_INITIALIZED = true;
         
-        // Initialize architecture-specific input drivers
-        #[cfg(target_arch = "x86_64")]
-        {
-            // Phase 1: Real PS/2 keyboard/mouse drivers
-            let mut _keyboard = crate::x86_64::keyboard::Ps2Keyboard::new();
-            _ = _keyboard.init();
-            
-            let mut _mouse = crate::x86_64::mouse::Ps2Mouse::new();
-            _ = _mouse.init();
-        }
+        // Architecture-specific initialization is handled by hal::init_arch_specific
         
         if let Some(manager) = &mut INPUT_MANAGER {
             manager.init_all()?;
-            // manager.enumerate_devices()?; // Simplified for no_std
+            // Add devices to manager for x86_64
+            #[cfg(target_arch = "x86_64")]
+            {
+                if let Some(keyboard) = crate::x86_64::PS2_KEYBOARD.lock().as_ref() {
+                    let handle = InputDeviceHandle {
+                        id: 1,
+                        driver_name: keyboard.name(),
+                        info: keyboard.get_info(),
+                        enabled: keyboard.is_enabled(),
+                        calibration_status: keyboard.get_calibration_status(),
+                    };
+                    manager.devices.push(handle);
+                }
+                if let Some(mouse) = crate::x86_64::PS2_MOUSE.lock().as_ref() {
+                    let handle = InputDeviceHandle {
+                        id: 2,
+                        driver_name: mouse.name(),
+                        info: mouse.get_info(),
+                        enabled: mouse.is_enabled(),
+                        calibration_status: mouse.get_calibration_status(),
+                    };
+                    manager.devices.push(handle);
+                }
+            }
         }
     }
     

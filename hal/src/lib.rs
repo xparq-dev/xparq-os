@@ -399,19 +399,6 @@ pub mod utils {
     }
 }
 
-/// HAL capabilities
-#[derive(Debug, Clone, Copy)]
-pub struct HalCapabilities {
-    pub max_display_resolution: (u32, u32),
-    pub max_input_devices: usize,
-    pub max_storage_devices: usize,
-    pub power_management: bool,
-    pub hardware_acceleration: bool,
-    pub multi_touch: bool,
-    pub gesture_recognition: bool,
-}
-
-
 
 use core::panic::PanicInfo;
 

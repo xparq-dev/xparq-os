@@ -213,17 +213,31 @@ impl DisplayManager {
         self.displays.iter().find(|display| display.info.name == name)
     }
     
-    /// Set display mode - simplified for no_std
-    pub fn set_mode(&mut self, _id: u32, _mode: &DisplayMode) -> Result<(), DisplayError> {
-        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
-        // Phase 2: Use trait objects without heap allocation
+    /// Set display mode
+    pub fn set_mode(&mut self, id: u32, mode: &DisplayMode) -> Result<(), DisplayError> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if id == 1 {
+                let mut vga = crate::x86_64::VGA_DISPLAY.lock();
+                if let Some(display) = vga.as_mut() {
+                    return display.set_mode(mode);
+                }
+            }
+        }
         Ok(())
     }
     
-    /// Create framebuffer - simplified for no_std
-    pub fn create_framebuffer(&mut self, _id: u32, _width: u32, _height: u32, _format: PixelFormat) -> Result<Framebuffer, DisplayError> {
-        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
-        // Phase 2: Use trait objects without heap allocation
+    /// Create framebuffer
+    pub fn create_framebuffer(&mut self, id: u32, width: u32, height: u32, format: PixelFormat) -> Result<Framebuffer, DisplayError> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if id == 1 {
+                let mut vga = crate::x86_64::VGA_DISPLAY.lock();
+                if let Some(display) = vga.as_mut() {
+                    return display.create_framebuffer(width, height, format);
+                }
+            }
+        }
         Ok(Framebuffer {
             width: 1024,
             height: 768,
@@ -235,31 +249,59 @@ impl DisplayManager {
         })
     }
     
-    /// Present framebuffer - simplified for no_std
-    pub fn present_framebuffer(&mut self, _id: u32, _framebuffer: &Framebuffer) -> Result<(), DisplayError> {
-        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
-        // Phase 2: Use trait objects without heap allocation
+    /// Present framebuffer
+    pub fn present_framebuffer(&mut self, id: u32, framebuffer: &Framebuffer) -> Result<(), DisplayError> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if id == 1 {
+                let mut vga = crate::x86_64::VGA_DISPLAY.lock();
+                if let Some(display) = vga.as_mut() {
+                    return display.present_framebuffer(framebuffer);
+                }
+            }
+        }
         Ok(())
     }
     
-    /// Set backlight - simplified for no_std
-    pub fn set_backlight(&mut self, _id: u32, _brightness: u8) -> Result<(), DisplayError> {
-        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
-        // Phase 2: Use trait objects without heap allocation
+    /// Set backlight
+    pub fn set_backlight(&mut self, id: u32, brightness: u8) -> Result<(), DisplayError> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if id == 1 {
+                let mut vga = crate::x86_64::VGA_DISPLAY.lock();
+                if let Some(display) = vga.as_mut() {
+                    return display.set_backlight(brightness);
+                }
+            }
+        }
         Ok(())
     }
     
-    /// Get backlight - simplified for no_std
-    pub fn get_backlight(&self, _id: u32) -> Result<u8, DisplayError> {
-        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
-        // Phase 2: Use trait objects without heap allocation
+    /// Get backlight
+    pub fn get_backlight(&self, id: u32) -> Result<u8, DisplayError> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if id == 1 {
+                let vga = crate::x86_64::VGA_DISPLAY.lock();
+                if let Some(display) = vga.as_ref() {
+                    return Ok(display.get_backlight());
+                }
+            }
+        }
         Ok(128)
     }
     
-    /// Set power - simplified for no_std
-    pub fn set_power(&mut self, _id: u32, _enabled: bool) -> Result<(), DisplayError> {
-        // Phase 1: Dummy implementation - no dynamic dispatch in no_std
-        // Phase 2: Use trait objects without heap allocation
+    /// Set power
+    pub fn set_power(&mut self, id: u32, enabled: bool) -> Result<(), DisplayError> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if id == 1 {
+                let mut vga = crate::x86_64::VGA_DISPLAY.lock();
+                if let Some(display) = vga.as_mut() {
+                    return display.set_power(enabled);
+                }
+            }
+        }
         Ok(())
     }
     
@@ -295,9 +337,27 @@ pub fn init() -> Result<(), super::HalError> {
         
         #[cfg(target_arch = "x86_64")]
         {
-            // Phase 1: Dummy x86-64 display driver
-            // Phase 2: Real x86-64 Intel/AMD GPU driver
+            // Initialize x86-64 display drivers
             println!("Initializing x86-64 display drivers");
+            // Call x86_64 arch specific init which sets up VGA_DISPLAY
+            crate::x86_64::init_arch_specific()?;
+            
+            // Add VGA display to manager
+            if let Some(manager) = &mut DISPLAY_MANAGER {
+                // Create a display handle for VGA
+                let vga = crate::x86_64::VGA_DISPLAY.lock();
+                if let Some(display) = vga.as_ref() {
+                    let info = display.get_info();
+                    let handle = DisplayHandle {
+                        id: 1,
+                        driver_name: display.name(),
+                        info,
+                        current_mode: display.get_mode(),
+                        powered: true,
+                    };
+                    manager.displays.push(handle);
+                }
+            }
         }
         
         if let Some(manager) = &mut DISPLAY_MANAGER {

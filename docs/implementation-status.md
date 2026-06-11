@@ -62,9 +62,9 @@ If you are an AI agent continuing work in this repository:
 6. Phase 3 should start from `hal/` scaffolding, not from rewriting the boot path again.
 7. If you change ownership or authoritative paths, update this file in the same commit.
 
-## Weekly Update (2026-06-10)
+## Daily Update (2026-06-11)
 
-- What was stabilized this week:
+- What was stabilized this week (including today):
   - Created stable HAL architecture with x86_64/arm64 specific modules
   - Implemented VGA Text Mode display driver with full functionality (write, clear, scroll, cursor)
   - Added mouse cursor support to VGA driver
@@ -74,6 +74,14 @@ If you are an AI agent continuing work in this repository:
   - Created dummy power driver for x86_64
   - Created dummy storage driver for x86_64
   - ✅ Improved PS/2 keyboard driver to properly handle shift modifiers (Left/Right Shift, Caps Lock)
+  - ✅ Fixed duplicate `HalCapabilities` struct in `hal/src/lib.rs`
+  - ✅ Added linker script config to kernel's `.cargo/config.toml`
+  - ✅ Added static driver instances to x86_64 HAL (VGA, PS/2 Keyboard, PS/2 Mouse)
+  - ✅ Updated InputManager to collect events from static PS/2 drivers
+  - ✅ Updated DisplayManager to use static VGA driver
+  - ✅ Updated `kernel/src/main_simple.rs` to use HAL subsystems instead of direct driver instantiation
+  - ✅ Updated `tools/windows/build-and-test.ps1` to build bootloader + kernel + disk image
+  - ✅ **Fully bootable build working!** (produces `build/x86-64/disk.img`)
 
 - What moved from `stub` to `in-progress`:
   - HAL display subsystem
@@ -85,11 +93,8 @@ If you are an AI agent continuing work in this repository:
   - No USB HID drivers yet
   - No PCIe bus enumeration
   - No real GPU drivers
-  - No actual bootable build yet (Rust not installed)
 
 - Next smallest executable step:
-  - Install Rust toolchain
-  - Build XPARQ OS using build-and-test.ps1
-  - Test in QEMU using test-boot.ps1
-  - ✅ Added mouse cursor support to VGA display driver
-  - ✅ Added dummy power and storage drivers for x86_64
+  - Test boot in QEMU (if QEMU installed)
+  - Continue Phase 3 HAL implementation (PCIe, framebuffer mode)
+  - Work on Phase 3.5 x86 desktop platform

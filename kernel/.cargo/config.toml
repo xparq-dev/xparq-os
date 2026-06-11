@@ -3,5 +3,5 @@ target = "x86_64-unknown-none"
 
 [target.x86_64-unknown-none]
 rustflags = [
-    "-C", "link-arg=-Td:\\XPARQ\\xparq-os\\bootloader\\x86_64\\linker.ld",
+    "-C", "link-arg=-Td:\\XPARQ\\xparq-os\\kernel\\kernel.ld",
 ]
