@@ -159,29 +159,80 @@ build_x86_64() {
         return 1
     fi
 
-    # Pad kernel to 16 sectors so the bootloader load window stays valid.
-    local kernel_size
-    kernel_size=$(wc -c < "$kernel_file")
-    local sector_size=512
-    local min_kernel_sectors=16
-    local kernel_sectors=$(( (kernel_size + sector_size - 1) / sector_size ))
-    if [ "$kernel_sectors" -lt "$min_kernel_sectors" ]; then
-        kernel_sectors="$min_kernel_sectors"
-    fi
+    # Build init
+    print_info "Building init (User Space Shell)..."
+    cd "$PROJECT_ROOT/init"
+    cargo build --target "$X86_64_TARGET" --release
+    local init_elf="$PROJECT_ROOT/target/$X86_64_TARGET/release/init"
+    cd "$PROJECT_ROOT"
 
-    local padded_kernel="$x86_64_build_dir/kernel.padded.bin"
-    python3 - "$kernel_file" "$padded_kernel" "$kernel_sectors" <<'PY'
-import pathlib, sys
-kernel = pathlib.Path(sys.argv[1]).read_bytes()
-out = pathlib.Path(sys.argv[2])
-sectors = int(sys.argv[3])
-size = sectors * 512
-out.write_bytes(kernel + b"\x00" * (size - len(kernel)))
+    # Build fat32-injector
+    print_info "Building fat32-injector..."
+    cd "$PROJECT_ROOT/tools/fat32-injector"
+    cargo build --release
+    local fat32_injector="$PROJECT_ROOT/target/release/fat32-injector"
+    cd "$PROJECT_ROOT"
+
+    # Create FAT32 image and inject init.elf
+    local fat32_img="$x86_64_build_dir/fat32.img"
+    rm -f "$fat32_img"
+    "$fat32_injector" "$fat32_img" "$init_elf" "INIT.ELF"
+
+    local disk_img="$x86_64_build_dir/disk.img"
+    
+    # Python script to assemble the entire disk image with an MBR partition table
+    python3 - "$bootloader_file" "$kernel_file" "$fat32_img" "$disk_img" <<'PY'
+import sys, pathlib, struct
+
+bootloader = pathlib.Path(sys.argv[1]).read_bytes()
+kernel = pathlib.Path(sys.argv[2]).read_bytes()
+fat32 = pathlib.Path(sys.argv[3]).read_bytes()
+
+# Pad bootloader to exactly 512 bytes
+if len(bootloader) > 512:
+    print("Bootloader is too large!")
+    sys.exit(1)
+bootloader += b'\x00' * (512 - len(bootloader))
+
+# MBR Partition Table is at offset 446
+# Partition 1: FAT32 starting at LBA 2048 (1MB offset)
+start_lba = 2048
+sector_count = len(fat32) // 512
+
+part1 = struct.pack('<B3sB3sII',
+    0x00,               # status (non-bootable)
+    b'\x00\x00\x00',    # start CHS (ignored)
+    0x0C,               # type (FAT32 LBA)
+    b'\x00\x00\x00',    # end CHS (ignored)
+    start_lba,          # start LBA
+    sector_count        # sector count
+)
+
+# Insert Partition 1 into Bootloader
+bootloader = bytearray(bootloader)
+bootloader[446:446+16] = part1
+bootloader[510:512] = b'\x55\xaa'
+
+# Assemble disk
+disk = bytearray()
+disk.extend(bootloader)
+
+# Kernel at LBA 1
+kernel_padded_size = start_lba * 512 - 512
+if len(kernel) > kernel_padded_size:
+    print(f"Kernel too large! Size: {len(kernel)}")
+    sys.exit(1)
+
+disk.extend(kernel)
+disk.extend(b'\x00' * (kernel_padded_size - len(kernel)))
+
+# FAT32 at LBA 2048
+disk.extend(fat32)
+
+pathlib.Path(sys.argv[4]).write_bytes(disk)
 PY
 
-    cat "$bootloader_file" "$padded_kernel" > "$x86_64_build_dir/disk.img"
-    rm -f "$padded_kernel"
-    print_success "x86-64 disk image built: $x86_64_build_dir/disk.img"
+    print_success "x86-64 disk image built: $disk_img"
 }
 
 # Test x86_64 boot

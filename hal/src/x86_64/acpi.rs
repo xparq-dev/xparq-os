@@ -42,7 +42,7 @@ impl AcpiHeader {
 
         // Verify checksum
         let mut sum: u8 = 0;
-        let ptr = self as *const u8;
+        let ptr = self as *const AcpiHeader as *const u8;
         for i in 0..self.length as usize {
             sum = sum.wrapping_add(*ptr.add(i));
         }
@@ -59,7 +59,7 @@ impl Rsdp {
 
         // Verify first checksum (for rev 0 and up)
         let mut sum: u8 = 0;
-        let ptr = self as *const u8;
+        let ptr = self as *const Rsdp as *const u8;
         let first_part_len = if self.revision == 0 { 20 } else { 36 };
         for i in 0..first_part_len {
             sum = sum.wrapping_add(*ptr.add(i));
@@ -155,36 +155,36 @@ const MADT_TYPE_INT_OVERRIDE: u8 = 2; // Interrupt Source Override
 /// Processor Local APIC MADT entry
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
-struct MadtEntryLapic {
-    type_: u8,
-    length: u8,
-    processor_id: u8,
-    apic_id: u8,
-    flags: u32,
+pub struct MadtEntryLapic {
+    pub type_: u8,
+    pub length: u8,
+    pub processor_id: u8,
+    pub apic_id: u8,
+    pub flags: u32,
 }
 
 /// I/O APIC MADT entry
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
-struct MadtEntryIoapic {
-    type_: u8,
-    length: u8,
-    ioapic_id: u8,
-    reserved: u8,
-    ioapic_address: u32,
-    global_system_interrupt_base: u32,
+pub struct MadtEntryIoapic {
+    pub type_: u8,
+    pub length: u8,
+    pub ioapic_id: u8,
+    pub reserved: u8,
+    pub ioapic_address: u32,
+    pub global_system_interrupt_base: u32,
 }
 
 /// Interrupt Source Override MADT entry
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
-struct MadtEntryIntOverride {
-    type_: u8,
-    length: u8,
-    bus: u8,
-    source: u8,
-    global_system_interrupt: u32,
-    flags: u16,
+pub struct MadtEntryIntOverride {
+    pub type_: u8,
+    pub length: u8,
+    pub bus: u8,
+    pub source: u8,
+    pub global_system_interrupt: u32,
+    pub flags: u16,
 }
 
 /// Parsed MADT information
@@ -246,6 +246,64 @@ pub unsafe fn parse_madt(madt_addr: u64) -> Result<MadtInfo, ()> {
 
     Ok(info)
 }
+/// FADT (Fixed ACPI Description Table)
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+pub struct Fadt {
+    pub header: AcpiHeader,
+    pub firmware_ctrl: u32,
+    pub dsdt: u32,
+    _reserved1: u8,
+    pub preferred_power_management_profile: u8,
+    pub sci_interrupt: u16,
+    pub smi_command_port: u32,
+    pub acpi_enable: u8,
+    pub acpi_disable: u8,
+    pub s4bios_req: u8,
+    pub pstate_control: u8,
+    pub pm1a_event_block: u32,
+    pub pm1b_event_block: u32,
+    pub pm1a_control_block: u32,
+    pub pm1b_control_block: u32,
+    pub pm2_control_block: u32,
+    pub pm_timer_block: u32,
+    pub gpe0_block: u32,
+    pub gpe1_block: u32,
+    pub pm1_event_length: u8,
+    pub pm1_control_length: u8,
+    pub pm2_control_length: u8,
+    pub pm_timer_length: u8,
+    pub gpe0_length: u8,
+    pub gpe1_length: u8,
+    pub gpe1_base: u8,
+    pub cstate_control: u8,
+    pub worst_c2_latency: u16,
+    pub worst_c3_latency: u16,
+    pub flush_size: u16,
+    pub flush_stride: u16,
+    pub duty_offset: u8,
+    pub duty_width: u8,
+    pub day_alarm: u8,
+    pub month_alarm: u8,
+    pub century: u8,
+    pub boot_architecture_flags: u16,
+    _reserved2: u8,
+    pub flags: u32,
+}
+
+pub unsafe fn parse_fadt(fadt_addr: u64) -> Result<u32, ()> {
+    let header_ptr = fadt_addr as *const AcpiHeader;
+    let header = &*header_ptr;
+
+    if !header.is_valid(b"FACP") {
+        return Err(());
+    }
+
+    let fadt_ptr = fadt_addr as *const Fadt;
+    let fadt = &*fadt_ptr;
+
+    Ok(fadt.pm1a_control_block)
+}
 
 /// ACPI global state
 pub static mut ACPI_STATE: AcpiState = AcpiState::new();
@@ -254,6 +312,7 @@ pub static mut ACPI_STATE: AcpiState = AcpiState::new();
 pub struct AcpiState {
     pub initialized: bool,
     pub madt: Option<MadtInfo>,
+    pub pm1a_control_block: Option<u32>,
 }
 
 impl AcpiState {
@@ -261,6 +320,7 @@ impl AcpiState {
         Self {
             initialized: false,
             madt: None,
+            pm1a_control_block: None,
         }
     }
 }
@@ -273,6 +333,12 @@ pub fn init() -> Result<(), ()> {
             if let Some(madt_addr) = find_table(rsdp, b"APIC") {
                 if let Ok(madt_info) = parse_madt(madt_addr) {
                     ACPI_STATE.madt = Some(madt_info);
+                }
+            }
+            // Find FADT
+            if let Some(fadt_addr) = find_table(rsdp, b"FACP") {
+                if let Ok(pm1a_cnt) = parse_fadt(fadt_addr) {
+                    ACPI_STATE.pm1a_control_block = Some(pm1a_cnt);
                 }
             }
             ACPI_STATE.initialized = true;

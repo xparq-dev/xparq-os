@@ -49,7 +49,7 @@ run-arm64: arm64
 run-x86_64: x86_64
 	@echo "Running XPARQ OS on QEMU x86-64..."
 	@if [ ! -f build/x86-64/disk.img ]; then echo "Missing artifact: build/x86-64/disk.img"; exit 1; fi
-	qemu-system-x86_64 -drive format=raw,file=build/x86-64/disk.img -boot order=c -nographic -no-reboot -m 128M
+	qemu-system-x86_64 -drive format=raw,file=build/x86-64/disk.img -boot order=c -serial stdio -no-reboot -m 128M
 
 # Flash to ARM device
 flash-arm64: arm64

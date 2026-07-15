@@ -48,12 +48,14 @@ pub struct X86Display {
 
 enum X86DisplayInner {
     Vbe {
-        framebuffer: *mut u32,
+        framebuffer: usize,
+        double_buffer: Option<usize>,
         width: u32,
         height: u32,
         pitch: u32,
         cursor_x: u32,
         cursor_y: u32,
+        clip_rect: Option<(u32, u32, u32, u32)>, // (x, y, w, h)
     },
     Text(VgaTextDisplay),
 }
@@ -111,12 +113,14 @@ impl X86Display {
             // VBE mode is available
             X86Display {
                 inner: X86DisplayInner::Vbe {
-                    framebuffer: vbe_info.framebuffer_base as *mut u32,
+                    framebuffer: vbe_info.framebuffer_base as usize,
+                    double_buffer: None,
                     width: vbe_info.width as u32,
                     height: vbe_info.height as u32,
                     pitch: vbe_info.pitch as u32,
                     cursor_x: 0,
                     cursor_y: 0,
+                    clip_rect: None,
                 }
             }
         } else {
@@ -133,14 +137,40 @@ impl X86Display {
         (b as u32) | ((g as u32) << 8) | ((r as u32) << 16)
     }
 
+    pub fn set_clip_rect(&mut self, x: u32, y: u32, w: u32, h: u32) {
+        if let X86DisplayInner::Vbe { clip_rect, .. } = &mut self.inner {
+            *clip_rect = Some((x, y, w, h));
+        }
+    }
+
+    pub fn get_clip_rect(&self) -> Option<(u32, u32, u32, u32)> {
+        if let X86DisplayInner::Vbe { clip_rect, .. } = &self.inner {
+            *clip_rect
+        } else {
+            None
+        }
+    }
+
+    pub fn clear_clip_rect(&mut self) {
+        if let X86DisplayInner::Vbe { clip_rect, .. } = &mut self.inner {
+            *clip_rect = None;
+        }
+    }
+
     /// Set pixel at (x,y)
     pub fn set_pixel(&mut self, x: u32, y: u32, color: u32) {
         match &mut self.inner {
-            X86DisplayInner::Vbe { framebuffer, width, height, pitch, .. } => {
+            X86DisplayInner::Vbe { framebuffer, double_buffer, width, height, pitch, clip_rect, .. } => {
                 if x < *width && y < *height {
-                    let offset = (y * pitch / 4 + x) as usize;
+                    if let Some((cx, cy, cw, ch)) = clip_rect {
+                        if x < *cx || x >= *cx + *cw || y < *cy || y >= *cy + *ch {
+                            return;
+                        }
+                    }
+                    let offset = (y * *pitch / 4 + x) as usize;
+                    let target = double_buffer.unwrap_or(*framebuffer);
                     unsafe {
-                        write_volatile(framebuffer.add(offset), color);
+                        write_volatile((target as *mut u32).add(offset), color);
                     }
                 }
             },
@@ -148,23 +178,68 @@ impl X86Display {
         }
     }
 
+    /// Get pixel at (x,y)
+    pub fn get_pixel(&self, x: u32, y: u32) -> u32 {
+        match &self.inner {
+            X86DisplayInner::Vbe { framebuffer, double_buffer, width, height, pitch, clip_rect, .. } => {
+                if x < *width && y < *height {
+                    // We don't necessarily need to clip get_pixel, but we could.
+                    // For now, let's just return the pixel since we are usually reading the background
+                    // to blend on top of it.
+                    let offset = (y * *pitch / 4 + x) as usize;
+                    let target = double_buffer.unwrap_or(*framebuffer);
+                    unsafe {
+                        core::ptr::read_volatile((target as *const u32).add(offset))
+                    }
+                } else {
+                    0
+                }
+            },
+            X86DisplayInner::Text(_) => 0,
+        }
+    }
+
+    /// Blend a foreground color with alpha (0-255) onto a background color
+    pub fn alpha_blend(bg: u32, fg: u32, alpha: u32) -> u32 {
+        if alpha == 0 { return bg; }
+        if alpha == 255 { return fg; }
+
+        let inv_alpha = 255 - alpha;
+
+        let bg_r = (bg >> 16) & 0xFF;
+        let bg_g = (bg >> 8) & 0xFF;
+        let bg_b = bg & 0xFF;
+
+        let fg_r = (fg >> 16) & 0xFF;
+        let fg_g = (fg >> 8) & 0xFF;
+        let fg_b = fg & 0xFF;
+
+        let out_r = ((fg_r * alpha) + (bg_r * inv_alpha)) / 255;
+        let out_g = ((fg_g * alpha) + (bg_g * inv_alpha)) / 255;
+        let out_b = ((fg_b * alpha) + (bg_b * inv_alpha)) / 255;
+
+        (out_b) | (out_g << 8) | (out_r << 16)
+    }
+
     /// Draw simple character (for testing)
     pub fn draw_char(&mut self, x: u32, y: u32, c: u8, fg: u32, bg: u32) {
         match &mut self.inner {
-            X86DisplayInner::Vbe { framebuffer, width, height, pitch, .. } => {
+            X86DisplayInner::Vbe { framebuffer, double_buffer, width, height, pitch, .. } => {
                 let glyph_offset = (c as usize) * 16;
                 let glyph = &VGA_FONT[glyph_offset..glyph_offset + 16];
                 
-                for row in 0..16 {
-                    for col in 0..8 {
-                        let bit = (glyph[row] >> (7 - col)) & 1;
+                let target = double_buffer.unwrap_or(*framebuffer);
+
+                for row in 0..16u32 {
+                    for col in 0..8u32 {
+                        let bit = (glyph[row as usize] >> (7 - col)) & 1;
                         let px = x + col;
                         let py = y + row;
                         
                         if px < *width && py < *height {
-                            let offset = (py * pitch / 4 + px) as usize;
+                            let offset = (py * *pitch / 4 + px) as usize;
                             unsafe {
-                                write_volatile(framebuffer.add(offset), if bit != 0 { fg } else { bg });
+                                write_volatile((target as *mut u32).add(offset), if bit != 0 { fg } else { bg });
                             }
                         }
                     }
@@ -180,12 +255,13 @@ impl X86Display {
     /// Clear screen
     pub fn clear_screen(&mut self, color: u32) {
         match &mut self.inner {
-            X86DisplayInner::Vbe { framebuffer, width, height, pitch, .. } => {
+            X86DisplayInner::Vbe { framebuffer, double_buffer, width, height, pitch, .. } => {
+                let target = double_buffer.unwrap_or(*framebuffer);
                 for y in 0..*height {
                     for x in 0..*width {
-                        let offset = (y * pitch / 4 + x) as usize;
+                        let offset = (y * *pitch / 4 + x) as usize;
                         unsafe {
-                            write_volatile(framebuffer.add(offset), color);
+                            write_volatile((target as *mut u32).add(offset), color);
                         }
                     }
                 }
@@ -193,6 +269,44 @@ impl X86Display {
             X86DisplayInner::Text(text) => {
                 text.clear_screen(0x1F);
             }
+        }
+    }
+
+    pub fn enable_double_buffering(&mut self, buffer_addr: usize) {
+        if let X86DisplayInner::Vbe { double_buffer, .. } = &mut self.inner {
+            *double_buffer = Some(buffer_addr);
+        }
+    }
+
+    pub fn flush(&mut self) {
+        if let X86DisplayInner::Vbe { framebuffer, double_buffer, width, height, pitch, .. } = &self.inner {
+            if let Some(db) = double_buffer {
+                let size = (*height * *pitch) as usize;
+                unsafe {
+                    core::ptr::copy_nonoverlapping(*db as *const u8, *framebuffer as *mut u8, size);
+                }
+            }
+        }
+    }
+
+    pub fn get_width(&self) -> u32 {
+        match &self.inner {
+            X86DisplayInner::Vbe { width, .. } => *width,
+            X86DisplayInner::Text(t) => t.width,
+        }
+    }
+
+    pub fn get_height(&self) -> u32 {
+        match &self.inner {
+            X86DisplayInner::Vbe { height, .. } => *height,
+            X86DisplayInner::Text(t) => t.height,
+        }
+    }
+
+    pub fn get_pitch(&self) -> u32 {
+        match &self.inner {
+            X86DisplayInner::Vbe { pitch, .. } => *pitch,
+            X86DisplayInner::Text(_) => 0,
         }
     }
 }
@@ -262,9 +376,9 @@ impl fmt::Write for X86Display {
                                 // Simple scroll: clear last line
                                 for y in *height - CHAR_HEIGHT..*height {
                                     for x in 0..*width {
-                                        let offset = (y * pitch / 4 + x) as usize;
+                                        let offset = (y * *pitch / 4 + x) as usize;
                                         unsafe {
-                                            write_volatile(framebuffer.add(offset), bg);
+                                            write_volatile((*framebuffer as *mut u32).add(offset), bg);
                                         }
                                     }
                                 }
@@ -272,7 +386,23 @@ impl fmt::Write for X86Display {
                             }
                         },
                         _ => {
-                            self.draw_char(*cursor_x, *cursor_y, byte, fg, bg);
+                            let glyph_offset = (byte as usize) * 16;
+                            let glyph = &VGA_FONT[glyph_offset..glyph_offset + 16];
+                            
+                            for row in 0..16u32 {
+                                for col in 0..8u32 {
+                                    let bit = (glyph[row as usize] >> (7 - col)) & 1;
+                                    let px = *cursor_x + col;
+                                    let py = *cursor_y + row;
+                                    
+                                    if px < *width && py < *height {
+                                        let offset = (py * *pitch / 4 + px) as usize;
+                                        unsafe {
+                                            write_volatile((*framebuffer as *mut u32).add(offset), if bit != 0 { fg } else { bg });
+                                        }
+                                    }
+                                }
+                            }
                             *cursor_x += CHAR_WIDTH;
                             if *cursor_x + CHAR_WIDTH > *width {
                                 *cursor_x = 0;
@@ -389,7 +519,7 @@ impl DisplayDriver for X86Display {
                 X86DisplayInner::Text(_) => PixelFormat::Rgb32,
             },
             address: match &self.inner {
-                X86DisplayInner::Vbe { framebuffer, .. } => *framebuffer as usize,
+                X86DisplayInner::Vbe { framebuffer, .. } => *framebuffer,
                 X86DisplayInner::Text(text) => text.buffer_addr,
             },
             size: match &self.inner {

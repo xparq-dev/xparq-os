@@ -11,10 +11,16 @@ extern crate alloc;
 use alloc::boxed::Box;
 
 // Simple println macro for no_std debugging
+#[macro_export]
 macro_rules! println {
     ($($arg:tt)*) => {
-        // Phase 1: No output in no_std
-        // Phase 2: Use actual console/serial output
+        // Just log it using x86_64 outb for debugging
+        // Hardcoded string to avoid alloc::format! for now
+        unsafe {
+            for b in b"[hal println] something happened...\n" {
+                core::arch::asm!("out dx, al", in("dx") 0x3F8u16, in("al") *b, options(nomem, nostack, preserves_flags));
+            }
+        }
     };
 }
 
@@ -46,14 +52,23 @@ pub struct SupportedArchitectures {
 }
 
 impl SupportedArchitectures {
-    pub const ARM64: Self = Self { arm64: true, x86_64: false };
-    pub const X86_64: Self = Self { arm64: false, x86_64: true };
-    pub const BOTH: Self = Self { arm64: true, x86_64: true };
+    pub const ARM64: Self = Self {
+        arm64: true,
+        x86_64: false,
+    };
+    pub const X86_64: Self = Self {
+        arm64: false,
+        x86_64: true,
+    };
+    pub const BOTH: Self = Self {
+        arm64: true,
+        x86_64: true,
+    };
 }
 
 impl core::ops::BitOr for SupportedArchitectures {
     type Output = Self;
-    
+
     fn bitor(self, rhs: Self) -> Self::Output {
         Self {
             arm64: self.arm64 || rhs.arm64,
@@ -75,28 +90,84 @@ pub struct HalFeatures {
 }
 
 impl HalFeatures {
-    pub const DISPLAY: Self = Self { display: true, input: false, power: false, storage: false, connectivity: false, audio: false, sensors: false };
-    pub const INPUT: Self = Self { display: false, input: true, power: false, storage: false, connectivity: false, audio: false, sensors: false };
-    pub const POWER: Self = Self { display: false, input: false, power: true, storage: false, connectivity: false, audio: false, sensors: false };
-    pub const STORAGE: Self = Self { display: false, input: false, power: false, storage: true, connectivity: false, audio: false, sensors: false };
-    pub const CONNECTIVITY: Self = Self { display: false, input: false, power: false, storage: false, connectivity: true, audio: false, sensors: false };
-    pub const AUDIO: Self = Self { display: false, input: false, power: false, storage: false, connectivity: false, audio: true, sensors: false };
-    pub const SENSORS: Self = Self { display: false, input: false, power: false, storage: false, connectivity: false, audio: false, sensors: true };
-    
-    pub const ALL: Self = Self { 
-        display: true, 
-        input: true, 
-        power: true, 
-        storage: true, 
-        connectivity: true, 
-        audio: true, 
-        sensors: true 
+    pub const DISPLAY: Self = Self {
+        display: true,
+        input: false,
+        power: false,
+        storage: false,
+        connectivity: false,
+        audio: false,
+        sensors: false,
+    };
+    pub const INPUT: Self = Self {
+        display: false,
+        input: true,
+        power: false,
+        storage: false,
+        connectivity: false,
+        audio: false,
+        sensors: false,
+    };
+    pub const POWER: Self = Self {
+        display: false,
+        input: false,
+        power: true,
+        storage: false,
+        connectivity: false,
+        audio: false,
+        sensors: false,
+    };
+    pub const STORAGE: Self = Self {
+        display: false,
+        input: false,
+        power: false,
+        storage: true,
+        connectivity: false,
+        audio: false,
+        sensors: false,
+    };
+    pub const CONNECTIVITY: Self = Self {
+        display: false,
+        input: false,
+        power: false,
+        storage: false,
+        connectivity: true,
+        audio: false,
+        sensors: false,
+    };
+    pub const AUDIO: Self = Self {
+        display: false,
+        input: false,
+        power: false,
+        storage: false,
+        connectivity: false,
+        audio: true,
+        sensors: false,
+    };
+    pub const SENSORS: Self = Self {
+        display: false,
+        input: false,
+        power: false,
+        storage: false,
+        connectivity: false,
+        audio: false,
+        sensors: true,
+    };
+
+    pub const ALL: Self = Self {
+        display: true,
+        input: true,
+        power: true,
+        storage: true,
+        connectivity: true,
+        audio: true,
+        sensors: true,
     };
 }
 
 impl core::ops::BitOr for HalFeatures {
     type Output = Self;
-    
+
     fn bitor(self, rhs: Self) -> Self::Output {
         Self {
             display: self.display || rhs.display,
@@ -132,15 +203,15 @@ pub struct HalCapabilities {
 }
 
 // Core HAL modules
+pub mod audio;
+pub mod connectivity;
 pub mod display;
+pub mod fs;
 pub mod input;
 pub mod power;
-pub mod storage;
-pub mod connectivity;
-pub mod usb;
-pub mod audio;
 pub mod sensors;
-pub mod fs;
+pub mod storage;
+pub mod usb;
 
 // Architecture-specific modules
 #[cfg(target_arch = "aarch64")]
@@ -150,14 +221,14 @@ pub mod arm64;
 pub mod x86_64;
 
 // Re-export main traits for easy access
+pub use audio::{AudioDeviceInfo, AudioDriver, AudioError};
+pub use connectivity::{ConnectivityDeviceInfo, ConnectivityDriver, ConnectivityError};
 pub use display::{DisplayDriver, DisplayInfo, DisplayMode, PixelFormat};
-pub use input::{InputDriver, InputEvent, InputDeviceType, InputEventKind};
-pub use power::{PowerDriver, PowerState, BatteryInfo, PowerPolicy};
-pub use storage::{StorageDriver, StorageDevice, StorageInfo, StorageError};
-pub use connectivity::{ConnectivityDriver, ConnectivityDeviceInfo, ConnectivityError};
-pub use usb::{UsbDriver, UsbHostInfo, UsbError};
-pub use audio::{AudioDriver, AudioDeviceInfo, AudioError};
-pub use sensors::{SensorDriver, SensorDeviceInfo, SensorError};
+pub use input::{InputDeviceType, InputDriver, InputEvent, InputEventKind};
+pub use power::{BatteryInfo, PowerDriver, PowerPolicy, PowerState};
+pub use sensors::{SensorDeviceInfo, SensorDriver, SensorError};
+pub use storage::{StorageDevice, StorageDriver, StorageError, StorageInfo};
+pub use usb::{UsbDriver, UsbError, UsbHostInfo};
 
 // Error type conversions
 impl From<crate::display::DisplayError> for HalError {
@@ -218,38 +289,44 @@ pub fn get_hal_info() -> HalInfo {
         name: HAL_NAME,
         version: HAL_VERSION,
         supported_architectures: SupportedArchitectures::ARM64 | SupportedArchitectures::X86_64,
-        features: HalFeatures::DISPLAY | HalFeatures::INPUT | HalFeatures::POWER | HalFeatures::STORAGE | HalFeatures::CONNECTIVITY | HalFeatures::AUDIO | HalFeatures::SENSORS,
+        features: HalFeatures::DISPLAY
+            | HalFeatures::INPUT
+            | HalFeatures::POWER
+            | HalFeatures::STORAGE
+            | HalFeatures::CONNECTIVITY
+            | HalFeatures::AUDIO
+            | HalFeatures::SENSORS,
     }
 }
 
 /// HAL initialization
 pub fn init() -> Result<(), HalError> {
     println!("Initializing HAL...");
-    
+
     // Initialize display subsystem
     display::init()?;
-    
+
     // Initialize input subsystem
     input::init()?;
-    
+
     // Initialize power subsystem
     power::init()?;
-    
+
     // Initialize storage subsystem
     storage::init()?;
-    
+
     // Initialize connectivity subsystem
     connectivity::init()?;
-    
+
     // Initialize USB subsystem
     usb::init()?;
-    
+
     // Initialize audio subsystem
     audio::init()?;
-    
+
     // Initialize sensors subsystem
     sensors::init()?;
-    
+
     println!("HAL initialized");
     Ok(())
 }
@@ -288,168 +365,168 @@ impl DeviceManager {
             sensor_drivers: arrayvec::ArrayVec::new(),
         }
     }
-    
+
     /// Register display driver - simplified for no_std
     pub fn register_display_driver(&mut self, _driver: *const ()) -> Result<(), HalError> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         Ok(())
     }
-    
+
     /// Register input driver - simplified for no_std
     pub fn register_input_driver(&mut self, _driver: *const ()) -> Result<(), HalError> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         Ok(())
     }
-    
+
     /// Register power driver - simplified for no_std
     pub fn register_power_driver(&mut self, _driver: *const ()) -> Result<(), HalError> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         Ok(())
     }
-    
+
     /// Register storage driver - simplified for no_std
     pub fn register_storage_driver(&mut self, _driver: *const ()) -> Result<(), HalError> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         Ok(())
     }
-    
+
     /// Register connectivity driver - simplified for no_std
     pub fn register_connectivity_driver(&mut self, _driver: *const ()) -> Result<(), HalError> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         Ok(())
     }
-    
+
     /// Register USB driver - simplified for no_std
     pub fn register_usb_driver(&mut self, _driver: *const ()) -> Result<(), HalError> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         Ok(())
     }
-    
+
     /// Register audio driver - simplified for no_std
     pub fn register_audio_driver(&mut self, _driver: *const ()) -> Result<(), HalError> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         Ok(())
     }
-    
+
     /// Register sensor driver - simplified for no_std
     pub fn register_sensor_driver(&mut self, _driver: *const ()) -> Result<(), HalError> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         Ok(())
     }
-    
+
     /// Get display driver by name - simplified for no_std
     pub fn get_display_driver(&self, _name: &str) -> Option<&dyn DisplayDriver> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         None
     }
-    
+
     /// Get input driver by name - simplified for no_std
     pub fn get_input_driver(&self, _name: &str) -> Option<&dyn InputDriver> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         None
     }
-    
+
     /// Get power driver by name - simplified for no_std
     pub fn get_power_driver(&self, _name: &str) -> Option<&dyn PowerDriver> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         None
     }
-    
+
     /// Get storage driver by name - simplified for no_std
     pub fn get_storage_driver(&self, _name: &str) -> Option<&dyn StorageDriver> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         None
     }
-    
+
     /// Get connectivity driver by name - simplified for no_std
     pub fn get_connectivity_driver(&self, _name: &str) -> Option<&dyn ConnectivityDriver> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         None
     }
-    
+
     /// Get USB driver by name - simplified for no_std
     pub fn get_usb_driver(&self, _name: &str) -> Option<&dyn UsbDriver> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         None
     }
-    
+
     /// Get audio driver by name - simplified for no_std
     pub fn get_audio_driver(&self, _name: &str) -> Option<&dyn AudioDriver> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         None
     }
-    
+
     /// Get sensor driver by name - simplified for no_std
     pub fn get_sensor_driver(&self, _name: &str) -> Option<&dyn SensorDriver> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         None
     }
-    
+
     /// List all display drivers - simplified for no_std
     pub fn list_display_drivers(&self) -> arrayvec::ArrayVec<&str, 8> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         arrayvec::ArrayVec::new()
     }
-    
+
     /// List all input drivers - simplified for no_std
     pub fn list_input_drivers(&self) -> arrayvec::ArrayVec<&str, 16> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         arrayvec::ArrayVec::new()
     }
-    
+
     /// List all power drivers - simplified for no_std
     pub fn list_power_drivers(&self) -> arrayvec::ArrayVec<&str, 4> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         arrayvec::ArrayVec::new()
     }
-    
+
     /// List all storage drivers - simplified for no_std
     pub fn list_storage_drivers(&self) -> arrayvec::ArrayVec<&str, 8> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         arrayvec::ArrayVec::new()
     }
-    
+
     /// List all connectivity drivers - simplified for no_std
     pub fn list_connectivity_drivers(&self) -> arrayvec::ArrayVec<&str, 8> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         arrayvec::ArrayVec::new()
     }
-    
+
     /// List all USB drivers - simplified for no_std
     pub fn list_usb_drivers(&self) -> arrayvec::ArrayVec<&str, 8> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         arrayvec::ArrayVec::new()
     }
-    
+
     /// List all audio drivers - simplified for no_std
     pub fn list_audio_drivers(&self) -> arrayvec::ArrayVec<&str, 8> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
         // Phase 2: Use trait objects without heap allocation
         arrayvec::ArrayVec::new()
     }
-    
+
     /// List all sensor drivers - simplified for no_std
     pub fn list_sensor_drivers(&self) -> arrayvec::ArrayVec<&str, 32> {
         // Phase 1: Dummy implementation - no dynamic dispatch in no_std
@@ -468,28 +545,28 @@ pub fn init_device_manager() -> Result<(), HalError> {
         if DEVICE_MANAGER_INITIALIZED {
             return Ok(());
         }
-        
+
         DEVICE_MANAGER = Some(DeviceManager::new());
         DEVICE_MANAGER_INITIALIZED = true;
-        
+
         Ok(())
     }
 }
 
 /// Get global device manager
 pub fn get_device_manager() -> Option<&'static DeviceManager> {
-    unsafe { DEVICE_MANAGER.as_ref() }
+    unsafe { (*(&raw const DEVICE_MANAGER)).as_ref() }
 }
 
 /// Get mutable global device manager
 pub fn get_device_manager_mut() -> Option<&'static mut DeviceManager> {
-    unsafe { DEVICE_MANAGER.as_mut() }
+    unsafe { (*(&raw mut DEVICE_MANAGER)).as_mut() }
 }
 
 /// HAL utilities
 pub mod utils {
     use super::*;
-    
+
     /// Check if architecture is supported
     pub fn is_architecture_supported() -> bool {
         #[cfg(target_arch = "aarch64")]
@@ -499,7 +576,7 @@ pub mod utils {
         #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
         return false;
     }
-    
+
     /// Get current architecture
     pub fn get_current_architecture() -> &'static str {
         #[cfg(target_arch = "aarch64")]
@@ -509,23 +586,37 @@ pub mod utils {
         #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
         return "Unknown";
     }
-    
+
     /// Check if feature is supported
     pub fn is_feature_supported(feature: HalFeatures) -> bool {
         let hal_info = get_hal_info();
-        
+
         // Check if all requested features are supported
-        if feature.display && !hal_info.features.display { return false; }
-        if feature.input && !hal_info.features.input { return false; }
-        if feature.power && !hal_info.features.power { return false; }
-        if feature.storage && !hal_info.features.storage { return false; }
-        if feature.connectivity && !hal_info.features.connectivity { return false; }
-        if feature.audio && !hal_info.features.audio { return false; }
-        if feature.sensors && !hal_info.features.sensors { return false; }
-        
+        if feature.display && !hal_info.features.display {
+            return false;
+        }
+        if feature.input && !hal_info.features.input {
+            return false;
+        }
+        if feature.power && !hal_info.features.power {
+            return false;
+        }
+        if feature.storage && !hal_info.features.storage {
+            return false;
+        }
+        if feature.connectivity && !hal_info.features.connectivity {
+            return false;
+        }
+        if feature.audio && !hal_info.features.audio {
+            return false;
+        }
+        if feature.sensors && !hal_info.features.sensors {
+            return false;
+        }
+
         true
     }
-    
+
     /// Get HAL capabilities
     pub fn get_capabilities() -> HalCapabilities {
         HalCapabilities {
@@ -540,14 +631,45 @@ pub mod utils {
     }
 }
 
-
 use core::panic::PanicInfo;
 
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
+fn panic(info: &PanicInfo) -> ! {
+    let mut msg = arrayvec::ArrayString::<256>::new();
+    use core::fmt::Write;
+    let _ = write!(&mut msg, "HAL PANIC: {}\n", info);
+    unsafe {
+        for b in msg.as_bytes() {
+            core::arch::asm!("out dx, al", in("dx") 0x03F8u16, in("al") *b);
+        }
+    }
     loop {
         core::hint::spin_loop();
     }
 }
 
+// --- I/O Helpers ---
 
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+pub unsafe fn hal_inb(port: u16) -> u8 {
+    let value: u8;
+    core::arch::asm!("in al, dx", out("al") value, in("dx") port, options(nomem, nostack, preserves_flags));
+    value
+}
+
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+pub unsafe fn hal_outb(port: u16, value: u8) {
+    core::arch::asm!("out dx, al", in("dx") port, in("al") value, options(nomem, nostack, preserves_flags));
+}
+
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+pub unsafe fn hal_inb(_port: u16) -> u8 {
+    0
+}
+
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+pub unsafe fn hal_outb(_port: u16, _value: u8) {}

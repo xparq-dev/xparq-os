@@ -16,47 +16,64 @@ const PS2_COMMAND_PORT: u16 = 0x64;
 pub struct Ps2Keyboard {
     initialized: bool,
     modifiers: Modifiers,
-    event_queue: Mutex<ArrayVec<InputEvent, 64>>,
+    event_queue: spin::Mutex<arrayvec::ArrayVec<InputEvent, 64>>,
+    callback: Option<fn(&InputEvent)>,
 }
 
 impl Ps2Keyboard {
     /// Create a new PS/2 keyboard driver
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             initialized: false,
             modifiers: Modifiers::empty(),
-            event_queue: Mutex::new(ArrayVec::new()),
+            event_queue: spin::Mutex::new(arrayvec::ArrayVec::new_const()),
+            callback: None,
         }
     }
 
     /// Read a byte from PS/2 data port
     fn read_data(&self) -> u8 {
         unsafe {
-            while (read_volatile(PS2_STATUS_PORT as *const u8) & 0x01) == 0 {}
-            read_volatile(PS2_DATA_PORT as *const u8)
+            for _ in 0..100000 {
+                if (crate::hal_inb(PS2_STATUS_PORT) & 0x01) != 0 {
+                    return crate::hal_inb(PS2_DATA_PORT);
+                }
+                core::arch::asm!("pause");
+            }
+            0
         }
     }
 
     /// Write a byte to PS/2 data port
     fn write_data(&self, data: u8) {
         unsafe {
-            while (read_volatile(PS2_STATUS_PORT as *const u8) & 0x02) != 0 {}
-            write_volatile(PS2_DATA_PORT as *mut u8, data);
+            for _ in 0..100000 {
+                if (crate::hal_inb(PS2_STATUS_PORT) & 0x02) == 0 {
+                    break;
+                }
+                core::arch::asm!("pause");
+            }
+            crate::hal_outb(PS2_DATA_PORT, data);
         }
     }
 
     /// Write a command to PS/2 command port
     fn write_command(&self, cmd: u8) {
         unsafe {
-            while (read_volatile(PS2_STATUS_PORT as *const u8) & 0x02) != 0 {}
-            write_volatile(PS2_COMMAND_PORT as *mut u8, cmd);
+            for _ in 0..100000 {
+                if (crate::hal_inb(PS2_STATUS_PORT) & 0x02) == 0 {
+                    break;
+                }
+                core::arch::asm!("pause");
+            }
+            crate::hal_outb(PS2_COMMAND_PORT, cmd);
         }
     }
 
     /// Interrupt handler for keyboard
     pub fn irq_handler(&mut self) {
         unsafe {
-            if (read_volatile(PS2_STATUS_PORT as *const u8) & 0x01) == 0 {
+            if (crate::hal_inb(PS2_STATUS_PORT) & 0x01) == 0 {
                 return;
             }
         }
@@ -100,7 +117,12 @@ impl Ps2Keyboard {
         };
 
         let mut queue = self.event_queue.lock();
-        let _ = queue.try_push(event);
+        let _ = queue.try_push(event.clone());
+        drop(queue);
+        
+        if let Some(cb) = self.callback {
+            cb(&event);
+        }
     }
 }
 
@@ -118,7 +140,7 @@ impl InputDriver for Ps2Keyboard {
         let mut config = self.read_data();
         config |= 0x01; // Enable first port IRQ
         config &= !0x20;
-        config &= !0x40;
+        config |= 0x40; // Enable first port translation
         self.write_command(0x60);
         self.write_data(config);
         self.write_command(0xAA);
@@ -151,7 +173,9 @@ impl InputDriver for Ps2Keyboard {
         self.event_queue.lock().pop_at(0)
     }
 
-    fn set_event_callback(&mut self, _callback: Option<fn(&InputEvent)>) {}
+    fn set_event_callback(&mut self, callback: Option<fn(&InputEvent)>) {
+        self.callback = callback;
+    }
 
     fn set_enabled(&mut self, _enabled: bool) -> Result<(), InputError> {
         Ok(())

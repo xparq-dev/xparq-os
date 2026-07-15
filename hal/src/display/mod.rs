@@ -218,7 +218,7 @@ impl DisplayManager {
         #[cfg(target_arch = "x86_64")]
         {
             if id == 1 {
-                let mut vga = crate::x86_64::VGA_DISPLAY.lock();
+                let mut vga = crate::x86_64::DISPLAY.lock();
                 if let Some(display) = vga.as_mut() {
                     return display.set_mode(mode);
                 }
@@ -232,7 +232,7 @@ impl DisplayManager {
         #[cfg(target_arch = "x86_64")]
         {
             if id == 1 {
-                let mut vga = crate::x86_64::VGA_DISPLAY.lock();
+                let mut vga = crate::x86_64::DISPLAY.lock();
                 if let Some(display) = vga.as_mut() {
                     return display.create_framebuffer(width, height, format);
                 }
@@ -254,7 +254,7 @@ impl DisplayManager {
         #[cfg(target_arch = "x86_64")]
         {
             if id == 1 {
-                let mut vga = crate::x86_64::VGA_DISPLAY.lock();
+                let mut vga = crate::x86_64::DISPLAY.lock();
                 if let Some(display) = vga.as_mut() {
                     return display.present_framebuffer(framebuffer);
                 }
@@ -268,7 +268,7 @@ impl DisplayManager {
         #[cfg(target_arch = "x86_64")]
         {
             if id == 1 {
-                let mut vga = crate::x86_64::VGA_DISPLAY.lock();
+                let mut vga = crate::x86_64::DISPLAY.lock();
                 if let Some(display) = vga.as_mut() {
                     return display.set_backlight(brightness);
                 }
@@ -282,7 +282,7 @@ impl DisplayManager {
         #[cfg(target_arch = "x86_64")]
         {
             if id == 1 {
-                let vga = crate::x86_64::VGA_DISPLAY.lock();
+                let vga = crate::x86_64::DISPLAY.lock();
                 if let Some(display) = vga.as_ref() {
                     return Ok(display.get_backlight());
                 }
@@ -296,7 +296,7 @@ impl DisplayManager {
         #[cfg(target_arch = "x86_64")]
         {
             if id == 1 {
-                let mut vga = crate::x86_64::VGA_DISPLAY.lock();
+                let mut vga = crate::x86_64::DISPLAY.lock();
                 if let Some(display) = vga.as_mut() {
                     return display.set_power(enabled);
                 }
@@ -339,13 +339,13 @@ pub fn init() -> Result<(), super::HalError> {
         {
             // Initialize x86-64 display drivers
             println!("Initializing x86-64 display drivers");
-            // Call x86_64 arch specific init which sets up VGA_DISPLAY
+            // Call x86_64 arch specific init which sets up DISPLAY
             crate::x86_64::init_arch_specific()?;
             
             // Add VGA display to manager
-            if let Some(manager) = &mut DISPLAY_MANAGER {
+            if let Some(manager) = (*(&raw mut DISPLAY_MANAGER)).as_mut() {
                 // Create a display handle for VGA
-                let vga = crate::x86_64::VGA_DISPLAY.lock();
+                let vga = crate::x86_64::DISPLAY.lock();
                 if let Some(display) = vga.as_ref() {
                     let info = display.get_info();
                     let handle = DisplayHandle {
@@ -360,7 +360,7 @@ pub fn init() -> Result<(), super::HalError> {
             }
         }
         
-        if let Some(manager) = &mut DISPLAY_MANAGER {
+        if let Some(manager) = (*(&raw mut DISPLAY_MANAGER)).as_mut() {
             manager.init_all()?;
             manager.enumerate_displays()?;
         }
@@ -372,12 +372,12 @@ pub fn init() -> Result<(), super::HalError> {
 
 /// Get global display manager
 pub fn get_display_manager() -> Option<&'static DisplayManager> {
-    unsafe { DISPLAY_MANAGER.as_ref() }
+    unsafe { (*(&raw const DISPLAY_MANAGER)).as_ref() }
 }
 
 /// Get mutable global display manager
 pub fn get_display_manager_mut() -> Option<&'static mut DisplayManager> {
-    unsafe { DISPLAY_MANAGER.as_mut() }
+    unsafe { (*(&raw mut DISPLAY_MANAGER)).as_mut() }
 }
 
 /// Display utilities

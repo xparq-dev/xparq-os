@@ -84,6 +84,17 @@ pub struct InputEvent {
     pub data: InputEventData,
 }
 
+impl Default for InputEvent {
+    fn default() -> Self {
+        Self {
+            timestamp: 0,
+            device_type: InputDeviceType::Keyboard,
+            event_kind: InputEventKind::MouseMove,
+            data: InputEventData::Mouse { x: 0, y: 0, buttons: MouseButtons::empty(), wheel_delta: 0 },
+        }
+    }
+}
+
 /// Input event kinds
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InputEventKind {
@@ -412,7 +423,7 @@ pub fn init() -> Result<(), super::HalError> {
         
         // Architecture-specific initialization is handled by hal::init_arch_specific
         
-        if let Some(manager) = &mut INPUT_MANAGER {
+        if let Some(manager) = (*(&raw mut INPUT_MANAGER)).as_mut() {
             manager.init_all()?;
             // Add devices to manager for x86_64 (PS/2 devices temporarily skipped)
             #[cfg(target_arch = "x86_64")]
@@ -446,12 +457,12 @@ pub fn init() -> Result<(), super::HalError> {
 
 /// Get global input manager
 pub fn get_input_manager() -> Option<&'static InputManager> {
-    unsafe { INPUT_MANAGER.as_ref() }
+    unsafe { (*(&raw const INPUT_MANAGER)).as_ref() }
 }
 
 /// Get mutable global input manager
 pub fn get_input_manager_mut() -> Option<&'static mut InputManager> {
-    unsafe { INPUT_MANAGER.as_mut() }
+    unsafe { (*(&raw mut INPUT_MANAGER)).as_mut() }
 }
 
 /// Get timestamp in milliseconds

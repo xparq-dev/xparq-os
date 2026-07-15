@@ -1,37 +1,53 @@
-// XPARQ OS - Phase 01: OS & Kernel Foundations
-// Inter-Process Communication (IPC) module
-// Implements FIDL channel primitives for message passing
+// XPARQ OS - Phase 11: IPC
+// Inter-Process Communication
 
-#![no_std]
+use crate::task::id::TaskId;
+use crate::task::wait_queue::WaitQueue;
+use arrayvec::ArrayVec;
+use crate::input::CircularBuffer;
+use spin::Mutex;
 
-pub mod channel;
-
-// Re-export main types
-pub use channel::{Channel, ChannelHandle, ChannelMessage, ChannelError};
-
-/// Initialize the IPC system
-pub fn init() {
-    println!("Initializing IPC system...");
-    
-    // Initialize channel system
-    channel::init();
-    
-    println!("IPC system initialized");
+#[derive(Debug, Clone, Copy)]
+pub struct Message {
+    pub sender: TaskId,
+    pub type_: u32,
+    pub data: [u8; 32],
 }
 
-/// IPC errors
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum IpcError {
-    /// Invalid channel handle
-    InvalidChannel,
-    /// Channel closed
-    ChannelClosed,
-    /// Buffer too small
-    BufferTooSmall,
-    /// No messages available
-    NoMessages,
-    /// Permission denied
-    PermissionDenied,
-    /// Resource exhausted
-    ResourceExhausted,
+impl Default for Message {
+    fn default() -> Self {
+        Self {
+            sender: TaskId(0), // Valid task id normally starts at 1, but we use Default only for buffer initialization
+            type_: 0,
+            data: [0; 32],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IpcMode {
+    Blocking,
+    NonBlocking,
+}
+
+#[derive(Debug)]
+pub struct IpcChannel {
+    pub messages: CircularBuffer<Message, 32>,
+    pub wait_queue: WaitQueue<16>,
+    pub mode: IpcMode,
+}
+
+impl IpcChannel {
+    pub const fn new() -> Self {
+        Self {
+            messages: CircularBuffer {
+                data: [Message { sender: TaskId(0), type_: 0, data: [0; 32] }; 32],
+                head: 0,
+                tail: 0,
+                count: 0,
+            },
+            wait_queue: WaitQueue::new(),
+            mode: IpcMode::Blocking,
+        }
+    }
 }

@@ -13,6 +13,11 @@ unsafe fn outb(port: u16, value: u8) {
     core::arch::asm!("out dx, al", in("dx") port, in("al") value, options(nomem, nostack, preserves_flags));
 }
 
+#[cfg(target_arch = "x86_64")]
+unsafe fn outw(port: u16, value: u16) {
+    core::arch::asm!("out dx, ax", in("dx") port, in("ax") value, options(nomem, nostack, preserves_flags));
+}
+
 /// x86_64 power driver
 pub struct X86PowerDriver {
     initialized: bool,
@@ -25,15 +30,27 @@ impl X86PowerDriver {
         }
     }
 
-    /// Shutdown the system using QEMU's debug exit port
+    /// Shutdown the system using ACPI (fallback to QEMU debug exit)
     pub fn shutdown(&mut self) -> ! {
         unsafe {
-            // QEMU debug exit (port 0x501)
+            // Try true ACPI shutdown first
+            if crate::x86_64::acpi::ACPI_STATE.initialized {
+                if let Some(pm1a_port) = crate::x86_64::acpi::ACPI_STATE.pm1a_control_block {
+                    // SLP_TYPa = 5 for QEMU/Bochs, SLP_EN = 1<<13
+                    // Value = (5 << 10) | (1 << 13) = 0x1400 | 0x2000 = 0x3400
+                    let slp_typa = 5;
+                    let slp_en = 1 << 13;
+                    let value = (slp_typa << 10) | slp_en;
+                    outw(pm1a_port as u16, value);
+                }
+            }
+            
+            // QEMU debug exit fallback (port 0x501)
             outb(0x501, 0x01);
         }
         // Fallback to infinite loop
         loop {
-            core::arch::asm!("hlt", options(nomem, nostack));
+            unsafe { core::arch::asm!("hlt", options(nomem, nostack)); }
         }
     }
 
@@ -43,7 +60,7 @@ impl X86PowerDriver {
             // Wait until the keyboard controller is ready
             loop {
                 let status = inb(0x64);
-                if (status & 0x02 == 0 {
+                if (status & 0x02) == 0 {
                     break;
                 }
             }
@@ -52,7 +69,7 @@ impl X86PowerDriver {
         }
         // Fallback to infinite loop
         loop {
-            core::arch::asm!("hlt", options(nomem, nostack));
+            unsafe { core::arch::asm!("hlt", options(nomem, nostack)); }
         }
     }
 }

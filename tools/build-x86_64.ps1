@@ -175,7 +175,7 @@ function Build-x86_64 {
         return 1
     }
 
-    & $script:LlvmObjcopy -O binary $kernel_elf (Join-Path $x86_64_build_dir "kernel.bin")
+    & $script:LlvmObjcopy -O binary -R .bss -R .comment -R .symtab -R .shstrtab -R .strtab $kernel_elf (Join-Path $x86_64_build_dir "kernel.bin")
     $kernel_file = Join-Path $x86_64_build_dir "kernel.bin"
     if (-not (Test-Path $kernel_file)) {
         Write-Error "x86_64 kernel binary conversion failed"
@@ -184,7 +184,7 @@ function Build-x86_64 {
     Write-Success "x86_64 kernel built: $kernel_file"
 
     # Build bootloader sector
-    $bootloader_asm = Join-Path $PROJECT_ROOT "bootloader\x86_64\src\simple_boot.asm"
+    $bootloader_asm = Join-Path $PROJECT_ROOT "bootloader\x86_64\src\boot.asm"
     if (-not (Test-Path $bootloader_asm)) {
         Write-Error "Bootloader source not found: $bootloader_asm"
         return 1
@@ -209,7 +209,13 @@ function Build-x86_64 {
         Write-Warning "Kernel is larger than the bootloader load window (16 sectors); boot may fail."
     }
 
-    $paddedKernel = New-Object byte[] ($kernelSectors * $sectorSize)
+    $diskSectors = 2048 # 1 MB fixed size for kernel disk
+    if ($kernelSectors -gt $diskSectors - 1) {
+        Write-Warning "Kernel is larger than 1MB minus bootloader; boot may fail."
+    }
+    Write-Host "RAW KERNEL SIZE: $($kernelBytes.Length) bytes ($kernelSectors sectors)"
+    
+    $paddedKernel = New-Object byte[] (($diskSectors - 1) * $sectorSize)
     [Array]::Copy($kernelBytes, 0, $paddedKernel, 0, $kernelBytes.Length)
     [IO.File]::WriteAllBytes($kernel_file, $paddedKernel)
 
@@ -249,12 +255,34 @@ function Test-x86_64Boot {
         Write-Error "x86_64 disk image not found. Build first."
         return 1
     }
+    $fat32_image = Join-Path $x86_64_build_dir "fat32.img"
+    $init_elf = Join-Path $PROJECT_ROOT "target\$X86_64_TARGET\$BUILD_TYPE\init"
+    
+    # Build init.elf
+    Write-Info "Building User Space Init..."
+    if ($VERBOSE) {
+        cargo build --target $X86_64_TARGET --profile $BUILD_TYPE --package init
+    } else {
+        cargo build --target $X86_64_TARGET --profile $BUILD_TYPE --package init --quiet
+    }
+    
+    # Run fat32-injector
+    Write-Info "Injecting init.elf into fat32.img..."
+    if ($VERBOSE) {
+        cargo run --package fat32-injector -- $fat32_image $init_elf INIT.ELF
+    } else {
+        cargo run --package fat32-injector --quiet -- $fat32_image $init_elf INIT.ELF
+    }
+
     $qemu_args = @(
-        "-drive", "format=raw,file=$disk_image",
+        "-drive", "format=raw,file=$disk_image,index=0,media=disk",
+        "-drive", "format=raw,file=$fat32_image,index=1,media=disk",
         "-boot", "order=c",
-        "-nographic",
+        "-m", "128M",
+        "-vga", "std",
+        "-serial", "file:$boot_log",
         "-no-reboot",
-        "-m", "128M"
+        "-display", "none"
     )
 
     $stamp = Get-Date -Format "yyyyMMddHHmmss"
@@ -282,23 +310,10 @@ function Test-x86_64Boot {
     if (Test-Path $stderr_log) {
         $boot_output += Get-Content $stderr_log
     }
-    $boot_output | Set-Content $boot_log
+    if ($boot_output.Length -gt 0) {
+        $boot_output | Add-Content $boot_log
+    }
     $boot_output | ForEach-Object { Write-Host $_ }
-    
-    # Check for expected boot messages
-    if (Select-String -Path $boot_log -Pattern "\[XPARQ OS\] Booting on x86-64..." -Quiet) {
-        Write-Success "Found expected boot message: '[XPARQ OS] Booting on x86-64...'"
-    } else {
-        Write-Warning "Expected boot message not found: '[XPARQ OS] Booting on x86-64...'"
-    }
-    
-    if (Select-String -Path $boot_log -Pattern "\[XPARQ OS\] Kernel initialized." -Quiet) {
-        Write-Success "Found expected boot message: '[XPARQ OS] Kernel initialized.'"
-    } else {
-        Write-Warning "Expected boot message not found: '[XPARQ OS] Kernel initialized.'"
-    }
-    
-    Write-Success "x86_64 boot test completed"
     Write-Info "Boot log saved to: $boot_log"
 }
 

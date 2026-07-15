@@ -129,6 +129,7 @@ pub enum PowerState {
     Hibernate,
     Off,
     Reboot,
+    Reset,
     Shutdown,
 }
 
@@ -459,7 +460,7 @@ pub fn init() -> Result<(), super::HalError> {
             println!("Initializing x86-64 power drivers");
         }
         
-        if let Some(manager) = &mut POWER_MANAGER {
+        if let Some(manager) = (*(&raw mut POWER_MANAGER)).as_mut() {
             manager.init_all()?;
             // manager.update_power_sources()?; // Simplified for no_std
         }
@@ -471,12 +472,12 @@ pub fn init() -> Result<(), super::HalError> {
 
 /// Get global power manager
 pub fn get_power_manager() -> Option<&'static PowerManager> {
-    unsafe { POWER_MANAGER.as_ref() }
+    unsafe { (*(&raw const POWER_MANAGER)).as_ref() }
 }
 
 /// Get mutable global power manager
 pub fn get_power_manager_mut() -> Option<&'static mut PowerManager> {
-    unsafe { POWER_MANAGER.as_mut() }
+    unsafe { (*(&raw mut POWER_MANAGER)).as_mut() }
 }
 
 /// Get timestamp in milliseconds

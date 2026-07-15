@@ -130,7 +130,7 @@ impl VmarManager {
     
     /// Initialize with root VMAR
     pub fn init(&mut self, base: usize, size: usize) -> Result<(), MemoryError> {
-        let mut registry = self.vmos.lock();
+        let mut registry = self.vmars.lock();
         
         // Create root VMAR
         let root_vmar_id = NEXT_VMAR_ID.fetch_add(1, Ordering::SeqCst);
@@ -157,7 +157,7 @@ impl VmarManager {
             mappings: arrayvec::ArrayVec::new(),
         };
         
-        registry.vmos.push((root_vmar_id, root_vmar));
+        registry.vmars.push((root_vmar_id, root_vmar));
         registry.root_vmar_id = root_vmar_id;
         
         println!("Created root VMAR {} at 0x{:x} with size {} bytes", root_vmar_id, base, size);
@@ -167,21 +167,18 @@ impl VmarManager {
     
     /// Create a new VMAR
     pub fn create_vmar(&self, parent_vmar_id: u64, offset: usize, size: usize, flags: VmarFlags) -> Result<VMAR, MemoryError> {
-        let mut registry = self.vmos.lock();
+        let mut registry = self.vmars.lock();
         
-        // Find parent VMAR
-        let parent_vmar = registry.vmos.iter_mut()
-            .find(|(id, _)| *id == parent_vmar_id)
-            .map(|(_, vmar)| vmar)
+        let parent_index = registry.vmars.iter().position(|(id, _)| *id == parent_vmar_id)
             .ok_or(MemoryError::InvalidAddress)?;
-        
+            
         // Check rights
-        if !parent_vmar.rights.create_child {
+        if !registry.vmars[parent_index].1.rights.create_child {
             return Err(MemoryError::PermissionDenied);
         }
         
         // Validate offset and size
-        if offset + size > parent_vmar.size {
+        if offset + size > registry.vmars[parent_index].1.size {
             return Err(MemoryError::InvalidAddress);
         }
         
@@ -190,8 +187,10 @@ impl VmarManager {
         }
         
         // Check for overlap with existing children and mappings
+        let parent_vmar = &registry.vmars[parent_index].1;
+        
         for child_id in &parent_vmar.children {
-            if let Some((_, child_vmar)) = registry.vmos.iter().find(|(id, _)| *id == *child_id) {
+            if let Some((_, child_vmar)) = registry.vmars.iter().find(|(id, _)| *id == *child_id) {
                 if (offset < child_vmar.base + child_vmar.size) && 
                    (offset + size > child_vmar.base) {
                     return Err(MemoryError::AlreadyMapped);
@@ -206,12 +205,14 @@ impl VmarManager {
             }
         }
         
+        let parent_base = parent_vmar.base;
+        
         // Create VMAR
         let vmar_id = NEXT_VMAR_ID.fetch_add(1, Ordering::SeqCst);
         
         let vmar = VMAR {
             id: vmar_id,
-            base: parent_vmar.base + offset,
+            base: parent_base + offset,
             size,
             parent_vmar: Some(parent_vmar_id),
             rights: VMARRights {
@@ -227,23 +228,23 @@ impl VmarManager {
         };
         
         // Add to parent's children
-        if parent_vmar.children.is_full() {
+        if registry.vmars[parent_index].1.children.is_full() {
             return Err(MemoryError::ResourceExhausted);
         }
-        parent_vmar.children.push(vmar_id);
+        registry.vmars[parent_index].1.children.push(vmar_id);
         
         // Register VMAR
-        if registry.vmos.is_full() {
+        if registry.vmars.is_full() {
             return Err(MemoryError::ResourceExhausted);
         }
-        registry.vmos.push((vmar_id, vmar));
+        registry.vmars.push((vmar_id, vmar));
         
-        println!("Created VMAR {} at 0x{:x} with size {} bytes", vmar_id, parent_vmar.base + offset, size);
+        println!("Created VMAR {} at 0x{:x} with size {} bytes", vmar_id, parent_base + offset, size);
         
         // Return a copy of the VMAR
         Ok(VMAR {
             id: vmar_id,
-            base: parent_vmar.base + offset,
+            base: parent_base + offset,
             size,
             parent_vmar: Some(parent_vmar_id),
             rights: VMARRights {
@@ -261,21 +262,18 @@ impl VmarManager {
     
     /// Map a VMO into a VMAR
     pub fn map_vmo(&self, vmar_id: u64, vmo: &VMO, vmar_offset: usize, vmo_offset: usize, size: usize, rights: VMORights) -> Result<usize, MemoryError> {
-        let mut registry = self.vmos.lock();
+        let mut registry = self.vmars.lock();
         
-        // Find VMAR
-        let vmar = registry.vmos.iter_mut()
-            .find(|(id, _)| *id == vmar_id)
-            .map(|(_, vmar)| vmar)
+        let vmar_index = registry.vmars.iter().position(|(id, _)| *id == vmar_id)
             .ok_or(MemoryError::InvalidAddress)?;
-        
+            
         // Check rights
-        if !vmar.rights.map {
+        if !registry.vmars[vmar_index].1.rights.map {
             return Err(MemoryError::PermissionDenied);
         }
         
         // Validate parameters
-        if vmar_offset + size > vmar.size {
+        if vmar_offset + size > registry.vmars[vmar_index].1.size {
             return Err(MemoryError::InvalidAddress);
         }
         
@@ -287,26 +285,29 @@ impl VmarManager {
             return Err(MemoryError::AlignmentError);
         }
         
+        let vmar = &registry.vmars[vmar_index].1;
+        let vmar_base = vmar.base;
+        
         // Check for overlap
         for child_id in &vmar.children {
-            if let Some((_, child_vmar)) = registry.vmos.iter().find(|(id, _)| *id == *child_id) {
-                if (vmar_offset < child_vmar.base - vmar.base + child_vmar.size) && 
-                   (vmar_offset + size > child_vmar.base - vmar.base) {
+            if let Some((_, child_vmar)) = registry.vmars.iter().find(|(id, _)| *id == *child_id) {
+                if (vmar_offset < child_vmar.base - vmar_base + child_vmar.size) && 
+                   (vmar_offset + size > child_vmar.base - vmar_base) {
                     return Err(MemoryError::AlreadyMapped);
                 }
             }
         }
         
         for mapping in &vmar.mappings {
-            if (vmar_offset < mapping.virtual_addr - vmar.base + mapping.size) && 
-               (vmar_offset + size > mapping.virtual_addr - vmar.base) {
+            if (vmar_offset < mapping.virtual_addr - vmar_base + mapping.size) && 
+               (vmar_offset + size > mapping.virtual_addr - vmar_base) {
                 return Err(MemoryError::AlreadyMapped);
             }
         }
         
         // Create mapping
         let mapping = Mapping {
-            virtual_addr: vmar.base + vmar_offset,
+            virtual_addr: vmar_base + vmar_offset,
             size,
             vmo_id: vmo.id,
             vmo_offset,
@@ -320,22 +321,22 @@ impl VmarManager {
         };
         
         // Add mapping
-        if vmar.mappings.is_full() {
+        if registry.vmars[vmar_index].1.mappings.is_full() {
             return Err(MemoryError::ResourceExhausted);
         }
-        vmar.mappings.push(mapping);
+        registry.vmars[vmar_index].1.mappings.push(mapping);
         
-        println!("Mapped VMO {} into VMAR {} at 0x{:x} with size {} bytes", vmo.id, vmar_id, vmar.base + vmar_offset, size);
+        println!("Mapped VMO {} into VMAR {} at 0x{:x} with size {} bytes", vmo.id, vmar_id, vmar_base + vmar_offset, size);
         
-        Ok(vmar.base + vmar_offset)
+        Ok(vmar_base + vmar_offset)
     }
     
     /// Unmap memory from a VMAR
     pub fn unmap(&self, vmar_id: u64, addr: usize, size: usize) -> Result<(), MemoryError> {
-        let mut registry = self.vmos.lock();
+        let mut registry = self.vmars.lock();
         
         // Find VMAR
-        let vmar = registry.vmos.iter_mut()
+        let vmar = registry.vmars.iter_mut()
             .find(|(id, _)| *id == vmar_id)
             .map(|(_, vmar)| vmar)
             .ok_or(MemoryError::InvalidAddress)?;
@@ -359,16 +360,16 @@ impl VmarManager {
     
     /// Destroy a VMAR
     pub fn destroy_vmar(&self, vmar_id: u64) -> Result<(), MemoryError> {
-        let mut registry = self.vmos.lock();
+        let mut registry = self.vmars.lock();
         
         // Find VMAR
-        let vmar_index = registry.vmos.iter()
+        let vmar_index = registry.vmars.iter()
             .enumerate()
             .find(|(i, (id, _))| *id == vmar_id)
             .map(|(i, _)| i)
             .ok_or(MemoryError::InvalidAddress)?;
         
-        let vmar = &registry.vmos[vmar_index].1;
+        let vmar = &registry.vmars[vmar_index].1;
         
         // Check rights
         if !vmar.rights.destroy {
@@ -382,7 +383,7 @@ impl VmarManager {
         
         // Remove from parent's children
         if let Some(parent_id) = vmar.parent_vmar {
-            if let Some((_, parent_vmar)) = registry.vmos.iter_mut().find(|(id, _)| *id == parent_id) {
+            if let Some((_, parent_vmar)) = registry.vmars.iter_mut().find(|(id, _)| *id == parent_id) {
                 if let Some(child_index) = parent_vmar.children.iter().position(|&id| id == vmar_id) {
                     parent_vmar.children.remove(child_index);
                 }
@@ -390,7 +391,7 @@ impl VmarManager {
         }
         
         // Remove VMAR
-        registry.vmos.remove(vmar_index);
+        registry.vmars.remove(vmar_index);
         println!("Destroyed VMAR {}", vmar_id);
         
         Ok(())
@@ -405,7 +406,7 @@ pub fn init(boot_info: &crate::BootInfo) {
     // Phase 2: Use actual memory regions from boot info
     
     let root_base = 0x100000; // 1MB start (avoid low memory)
-    let root_size = 0x80000000; // 2GB address space for Phase 1
+    let root_size = 0x80000000usize; // 2GB address space for Phase 1
     
     println!("VMAR system initialized");
 }

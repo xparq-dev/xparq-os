@@ -26,7 +26,7 @@ impl HidDevice {
                 device_address: 0,
                 speed: UsbSpeed::Full,
             },
-            report_descriptor: HidReportDescriptor { data: ArrayVec::new() },
+            report_descriptor: HidReportDescriptor { data: ArrayVec::new_const() },
         }
     }
 

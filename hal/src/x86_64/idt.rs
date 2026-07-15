@@ -67,24 +67,35 @@ static mut IDT: [IdtEntry; 256] = [IdtEntry::empty(); 256];
 pub type IrqHandler = fn();
 
 /// Registered IRQ handlers (vector -> handler)
-static IRQ_HANDLERS: Mutex<[Option<IrqHandler>; 256]> = Mutex::new([None; 256]);
+pub static mut IRQ_HANDLERS: spin::Mutex<[Option<IrqHandler>; 256]> = spin::Mutex::new([None; 256]);
 
 /// Register an interrupt handler for a specific vector
 pub fn register_irq_handler(vector: u8, handler: IrqHandler) {
-    let mut handlers = IRQ_HANDLERS.lock();
+    let mut handlers = unsafe { IRQ_HANDLERS.lock() };
     handlers[vector as usize] = Some(handler);
 }
 
 /// Dispatch an interrupt to the registered handler
 #[no_mangle]
 pub extern "C" fn irq_dispatch(vector: u8) {
-    let handlers = IRQ_HANDLERS.lock();
-    if let Some(handler) = handlers[vector as usize] {
+    if vector != 32 {
+        let mut msg = arrayvec::ArrayString::<32>::new();
+        use core::fmt::Write;
+        let _ = write!(&mut msg, "IRQ: {}\n", vector);
+        crate::x86_64::trace_log(msg.as_bytes());
+    }
+    
+    let handler_opt = {
+        let handlers = unsafe { IRQ_HANDLERS.lock() };
+        handlers[vector as usize]
+    };
+    
+    if let Some(handler) = handler_opt {
         handler();
     }
     // Send EOI
     unsafe {
-        if let Some(lapic) = &apic::LOCAL_APIC {
+        if let Some(lapic) = (*(&raw const apic::LOCAL_APIC)).as_ref() {
             lapic.eoi();
         }
     }
@@ -94,9 +105,9 @@ pub extern "C" fn irq_dispatch(vector: u8) {
 
 macro_rules! exception_handler {
     ($name:ident) => {
-        #[naked]
+        #[unsafe(naked)]
         pub unsafe extern "C" fn $name() {
-            core::arch::asm!(
+            core::arch::naked_asm!(
                 "cli",
                 "push rax",
                 "push rbx",
@@ -129,7 +140,6 @@ macro_rules! exception_handler {
                 "pop rbx",
                 "pop rax",
                 "iretq",
-                options(noreturn)
             );
         }
     };
@@ -137,9 +147,9 @@ macro_rules! exception_handler {
 
 macro_rules! irq_handler {
     ($name:ident, $vector:expr) => {
-        #[naked]
+        #[unsafe(naked)]
         pub unsafe extern "C" fn $name() {
-            core::arch::asm!(
+            core::arch::naked_asm!(
                 "cli",
                 "push rax",
                 "push rbx",
@@ -157,7 +167,10 @@ macro_rules! irq_handler {
                 "push r14",
                 "push r15",
                 "mov rdi, {vector}",
+                "mov rbx, rsp",
+                "and rsp, -16",
                 "call irq_dispatch",
+                "mov rsp, rbx",
                 "pop r15",
                 "pop r14",
                 "pop r13",
@@ -175,28 +188,90 @@ macro_rules! irq_handler {
                 "pop rax",
                 "iretq",
                 vector = const $vector,
-                options(noreturn)
             );
         }
     };
 }
 
-// Define handlers for common CPU exceptions
-exception_handler!(divide_by_zero);
-exception_handler!(debug_exception);
-exception_handler!(non_maskable_interrupt);
-exception_handler!(breakpoint);
-exception_handler!(overflow);
-exception_handler!(bound_range_exceeded);
-exception_handler!(invalid_opcode);
-exception_handler!(device_not_available);
-exception_handler!(double_fault);
-exception_handler!(coprocessor_segment_overrun);
-exception_handler!(invalid_tss);
-exception_handler!(segment_not_present);
-exception_handler!(stack_segment_fault);
-exception_handler!(general_protection_fault);
-exception_handler!(page_fault);
+macro_rules! exception_handler_with_name {
+    ($name:ident, $char1:expr, $char2:expr) => {
+        #[unsafe(naked)]
+        pub unsafe extern "C" fn $name() {
+            core::arch::naked_asm!(
+                "cli",
+                "mov eax, 0x03F8",
+                "mov dx, ax",
+                "mov al, '#'", "out dx, al",
+                "mov al, {char1}", "out dx, al",
+                "mov al, {char2}", "out dx, al",
+                "mov al, '\n'", "out dx, al",
+                "hlt",
+                "2: jmp 2b",
+                char1 = const $char1,
+                char2 = const $char2,
+            );
+        }
+    };
+}
+
+exception_handler_with_name!(divide_by_zero, b'D', b'E');
+exception_handler_with_name!(debug_exception, b'D', b'B');
+exception_handler_with_name!(non_maskable_interrupt, b'N', b'M');
+exception_handler_with_name!(breakpoint, b'B', b'P');
+exception_handler_with_name!(overflow, b'O', b'F');
+exception_handler_with_name!(bound_range_exceeded, b'B', b'R');
+// exception_handler_with_name!(invalid_opcode, b'U', b'D');
+#[unsafe(naked)]
+pub unsafe extern "C" fn invalid_opcode() {
+    core::arch::naked_asm!(
+        "cli",
+        "mov eax, 0x03F8",
+        "mov dx, ax",
+        "mov al, '#'", "out dx, al",
+        "mov al, 'U'", "out dx, al",
+        "mov al, 'D'", "out dx, al",
+        "mov al, '-'", "out dx, al",
+        "mov rdi, [rsp]", // RIP is at rsp for exceptions without error code
+        "and rsp, -16",
+        "call df_print_hex",
+        "hlt",
+        "2: jmp 2b",
+    );
+}
+exception_handler_with_name!(device_not_available, b'N', b'M');
+// exception_handler_with_name!(double_fault, b'D', b'F');
+
+#[unsafe(naked)]
+pub unsafe extern "C" fn double_fault() {
+    core::arch::naked_asm!(
+        "cli",
+        "mov eax, 0x03F8",
+        "mov dx, ax",
+        "mov al, '#'", "out dx, al",
+        "mov al, 'D'", "out dx, al",
+        "mov al, 'F'", "out dx, al",
+        "mov al, '-'", "out dx, al",
+        "mov rdi, [rsp+8]", // RIP is at rsp+8 because Error Code is at rsp
+        "and rsp, -16", // Align stack just in case
+        "call df_print_hex",
+        "hlt",
+        "2: jmp 2b",
+    );
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn df_print_hex(val: u64) {
+    let mut msg = arrayvec::ArrayString::<32>::new();
+    use core::fmt::Write;
+    let _ = write!(&mut msg, "{:X}\n", val);
+    crate::x86_64::trace_log(msg.as_bytes());
+}
+exception_handler_with_name!(coprocessor_segment_overrun, b'C', b'S');
+exception_handler_with_name!(invalid_tss, b'T', b'S');
+exception_handler_with_name!(segment_not_present, b'N', b'P');
+exception_handler_with_name!(stack_segment_fault, b'S', b'S');
+exception_handler_with_name!(general_protection_fault, b'G', b'P');
+exception_handler_with_name!(page_fault, b'P', b'F');
 
 // Define handlers for IRQs (vectors 32-47)
 irq_handler!(irq0, 32);
@@ -232,31 +307,31 @@ pub fn init() {
         IDT[9].set_handler(coprocessor_segment_overrun as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
         IDT[10].set_handler(invalid_tss as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
         IDT[11].set_handler(segment_not_present as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
-        IDT[12].set_handler(stack_segment_fault as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
-        IDT[13].set_handler(general_protection_fault as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
-        IDT[14].set_handler(page_fault as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
+        IDT[12].set_handler(stack_segment_fault as *const () as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
+        IDT[13].set_handler(general_protection_fault as *const () as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
+        IDT[14].set_handler(page_fault as *const () as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
 
         // Set up IRQ handlers (vectors 32-47)
         IDT[32].set_handler(irq0 as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
         IDT[33].set_handler(irq1 as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
-        IDT[34].set_handler(irq2 as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
-        IDT[35].set_handler(irq3 as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
-        IDT[36].set_handler(irq4 as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
-        IDT[37].set_handler(irq5 as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
-        IDT[38].set_handler(irq6 as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
-        IDT[39].set_handler(irq7 as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
-        IDT[40].set_handler(irq8 as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
-        IDT[41].set_handler(irq9 as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
-        IDT[42].set_handler(irq10 as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
-        IDT[43].set_handler(irq11 as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
-        IDT[44].set_handler(irq12 as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
-        IDT[45].set_handler(irq13 as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
-        IDT[46].set_handler(irq14 as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
-        IDT[47].set_handler(irq15 as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
+        IDT[34].set_handler(irq2 as *const () as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
+        IDT[35].set_handler(irq3 as *const () as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
+        IDT[36].set_handler(irq4 as *const () as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
+        IDT[37].set_handler(irq5 as *const () as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
+        IDT[38].set_handler(irq6 as *const () as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
+        IDT[39].set_handler(irq7 as *const () as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
+        IDT[40].set_handler(irq8 as *const () as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
+        IDT[41].set_handler(irq9 as *const () as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
+        IDT[42].set_handler(irq10 as *const () as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
+        IDT[43].set_handler(irq11 as *const () as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
+        IDT[44].set_handler(irq12 as *const () as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
+        IDT[45].set_handler(irq13 as *const () as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
+        IDT[46].set_handler(irq14 as *const () as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
+        IDT[47].set_handler(irq15 as *const () as u64, IdtFlags::PRESENT | IdtFlags::RING_0 | IdtFlags::INTERRUPT_GATE);
 
         let idt_ptr = IdtPointer {
             limit: (mem::size_of::<[IdtEntry; 256]>() - 1) as u16,
-            base: &IDT as *const _ as u64,
+            base: &raw const IDT as *const _ as u64,
         };
 
         // Load the IDT

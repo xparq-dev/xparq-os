@@ -33,21 +33,37 @@ impl Ps2Mouse {
 
     fn write_command(&self, cmd: u8) {
         unsafe {
-            while (read_volatile(PS2_STATUS_PORT as *const u8) & 0x02) != 0 {}
-            write_volatile(PS2_COMMAND_PORT as *mut u8, cmd);
+            for _ in 0..100000 {
+                if (crate::hal_inb(PS2_STATUS_PORT) & 0x02) == 0 {
+                    break;
+                }
+                core::arch::asm!("pause");
+            }
+            crate::hal_outb(PS2_COMMAND_PORT, cmd);
         }
     }
 
     fn write_data(&self, data: u8) {
         unsafe {
-            while (read_volatile(PS2_STATUS_PORT as *const u8) & 0x02) != 0 {}
-            write_volatile(PS2_DATA_PORT as *mut u8, data);
+            for _ in 0..100000 {
+                if (crate::hal_inb(PS2_STATUS_PORT) & 0x02) == 0 {
+                    break;
+                }
+                core::arch::asm!("pause");
+            }
+            crate::hal_outb(PS2_DATA_PORT, data);
         }
     }
 
     fn read_data(&self) -> u8 {
         unsafe {
-            read_volatile(PS2_DATA_PORT as *const u8)
+            for _ in 0..100000 {
+                if (crate::hal_inb(PS2_STATUS_PORT) & 0x01) != 0 {
+                    return crate::hal_inb(PS2_DATA_PORT);
+                }
+                core::arch::asm!("pause");
+            }
+            0
         }
     }
 
@@ -59,7 +75,7 @@ impl Ps2Mouse {
     /// Interrupt handler for mouse
     pub fn irq_handler(&mut self) {
         unsafe {
-            if (read_volatile(PS2_STATUS_PORT as *const u8) & 0x01) == 0 {
+            if (crate::hal_inb(PS2_STATUS_PORT) & 0x01) == 0 {
                 return;
             }
         }

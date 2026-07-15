@@ -8,7 +8,7 @@ members = [
     "hal",
     "interfaces/fidl",
     "bootloader/arm64",
-    "bootloader/x86_64",
+    "bootloader/x86_64", "tools/fat32-injector", "init",
 ]
 exclude = [
     "kernel-simple",

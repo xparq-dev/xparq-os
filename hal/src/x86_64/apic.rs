@@ -18,13 +18,15 @@ const LAPIC_TIMER_DIVIDE: usize = 0x03E0; // Divide Configuration Register
 /// I/O APIC register offsets
 const IOAPIC_IDX: usize = 0x0000;
 const IOAPIC_WIN: usize = 0x0010;
-const IOAPIC_REG_VER: usize = 0x01;
-const IOAPIC_REG_TABLE_LOW: usize = 0x10;
+const IOAPIC_REG_VER: u32 = 0x01;
+const IOAPIC_REG_TABLE_LOW: u32 = 0x10;
 
 /// System tick counter
 pub static TICKS: Mutex<u64> = Mutex::new(0);
 /// Timer interrupt vector
 const TIMER_VECTOR: u8 = 32;
+pub const RESCHED_IPI_VECTOR: u8 = 33;
+pub const WAKE_IPI_VECTOR: u8 = 34;
 
 /// Local APIC state
 #[derive(Debug, Clone, Copy)]
@@ -79,6 +81,22 @@ impl LocalApic {
             self.write_register(LAPIC_TIMER_INITIAL, 1000000); // This will need calibration
         }
     }
+
+    /// Send Inter-Processor Interrupt (IPI)
+    pub fn send_ipi(&self, target_apic_id: u32, vector: u8) {
+        unsafe {
+            // ICR High: Target APIC ID in bits 24-27
+            self.write_register(0x0310, target_apic_id << 24);
+            
+            // ICR Low: Delivery mode 0 (Fixed), assert level, edge trigger, vector
+            self.write_register(0x0300, vector as u32 | (1 << 14));
+            
+            // Wait for delivery status bit 12 to clear (delivery pending)
+            while self.read_register(0x0300) & (1 << 12) != 0 {
+                core::arch::asm!("pause");
+            }
+        }
+    }
 }
 
 /// Timer interrupt handler (called from irq_dispatch)
@@ -87,7 +105,7 @@ pub fn timer_handler() {
     *ticks += 1;
     drop(ticks);
     unsafe {
-        if let Some(lapic) = &LOCAL_APIC {
+        if let Some(lapic) = (*(&raw const LOCAL_APIC)).as_ref() {
             lapic.eoi();
         }
     }
@@ -96,6 +114,14 @@ pub fn timer_handler() {
 /// Get current tick count
 pub fn get_ticks() -> u64 {
     *TICKS.lock()
+}
+
+/// Sleep for specified milliseconds
+pub fn sleep_ms(ms: u64) {
+    let start = get_ticks();
+    while get_ticks() - start < ms {
+        unsafe { core::arch::asm!("pause"); }
+    }
 }
 
 /// I/O APIC state
@@ -202,7 +228,7 @@ pub fn init_interrupt_routing() -> Result<(), ()> {
         }
 
         // Apply any MADT interrupt source overrides
-        let acpi_state = &acpi::ACPI_STATE;
+        let acpi_state = &*(&raw const acpi::ACPI_STATE);
         if acpi_state.initialized {
             if let Some(madt_info) = &acpi_state.madt {
                 for override_entry in &madt_info.int_overrides {
@@ -239,13 +265,13 @@ pub fn map_irq(irq: u8, vector: u8) -> Result<(), ()> {
         };
 
         // Get the Local APIC ID
-        let lapic_id = match &LOCAL_APIC {
+        let lapic_id = match (*(&raw const LOCAL_APIC)).as_ref() {
             Some(lapic) => lapic.id() as u8,
             None => 0,
         };
 
         // Find the I/O APIC that handles this GSI and configure it
-        for ioapic in IO_APICS.iter().flatten() {
+        for ioapic in (*(&raw const IO_APICS)).iter().flatten() {
             if ioapic.handles_gsi(gsi) {
                 ioapic.configure_gsi(gsi, vector, lapic_id, flags);
                 return Ok(());
@@ -259,7 +285,7 @@ pub fn map_irq(irq: u8, vector: u8) -> Result<(), ()> {
 /// Initialize APIC subsystem
 pub fn init() -> Result<(), ()> {
     unsafe {
-        let acpi_state = &acpi::ACPI_STATE;
+        let acpi_state = &*(&raw const acpi::ACPI_STATE);
         if !acpi_state.initialized {
             return Err(());
         }

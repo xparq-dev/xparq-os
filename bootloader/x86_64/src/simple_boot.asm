@@ -42,6 +42,19 @@ start:
     mov si, msg_ok
     call print
     
+    ; --- Enable VESA Graphics Mode ---
+    ; Get VBE Mode Info for Mode 0x144 (1024x768x32)
+    mov ax, 0x4F01
+    mov cx, 0x0144
+    mov di, 0x7E00 ; Save VbeModeInfo to 0x7E00 for the kernel
+    int 0x10
+    
+    ; Set VBE Mode 0x144 with Linear Framebuffer (bit 14 set = 0x4144)
+    mov ax, 0x4F02
+    mov bx, 0x4144
+    int 0x10
+    ; ---------------------------------
+    
     ; Jump to kernel at 0x1000:0x0000
     jmp 0x1000:0x0000
 

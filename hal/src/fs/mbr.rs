@@ -26,7 +26,7 @@ pub struct MbrPartitionTable {
 
 impl MbrPartitionTable {
     pub fn from_bytes(bytes: &[u8]) -> Option<&Self> {
-        if bytes.len() &lt; mem::size_of::&lt;Self&gt;() {
+        if bytes.len() < mem::size_of::<Self>() {
             return None;
         }
         let ptr = bytes.as_ptr() as *const Self;
@@ -38,7 +38,7 @@ impl MbrPartitionTable {
     }
 
     pub fn get_partition(&self, index: usize) -> Option<&MbrPartitionEntry> {
-        if index &gt;= 4 {
+        if index >= 4 {
             return None;
         }
         let part = &self.partitions[index];

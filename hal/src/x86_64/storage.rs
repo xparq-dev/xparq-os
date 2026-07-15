@@ -1,23 +1,26 @@
 // XPARQ OS - x86_64 Storage Driver
 // Storage driver with RAM disk, ATA/IDE, and NVMe support
 
-use crate::storage::{StorageDriver, StorageError, StorageDevice, StorageType, StorageInterface,
-                   StorageInfo, StorageHealth, StorageCapabilities, StorageStatus, DeviceStatus,
-                   StorageStatistics, PowerMode};
+use crate::storage::{
+    DeviceStatus, PowerMode, StorageCapabilities, StorageDevice, StorageDriver, StorageError,
+    StorageHealth, StorageInfo, StorageInterface, StorageStatistics, StorageStatus, StorageType,
+};
+use crate::x86_64::ahci::AHCI_DRIVER;
+use crate::x86_64::nvme::NVME_DRIVER;
 use arrayvec::ArrayVec;
 use core::ptr::write_volatile;
-use core::sync::atomic::{AtomicU64, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use spin::Mutex;
 
 // RAM Disk definitions
-const RAM_DISK_SIZE: usize = 64 * 1024 * 1024;
+const RAM_DISK_SIZE: usize = 1 * 1024 * 1024;
 const RAM_DISK_SECTOR_SIZE: usize = 512;
 const RAM_DISK_SECTOR_COUNT: usize = RAM_DISK_SIZE / RAM_DISK_SECTOR_SIZE;
 
 // Global RAM disk buffer (aligned to 512 bytes)
 #[repr(align(512))]
 struct RamDiskBuffer([u8; RAM_DISK_SIZE]);
-static RAM_DISK: RamDiskBuffer = RamDiskBuffer([0; RAM_DISK_SIZE]);
+static mut RAM_DISK: RamDiskBuffer = RamDiskBuffer([0; RAM_DISK_SIZE]);
 static READS: AtomicU64 = AtomicU64::new(0);
 static WRITES: AtomicU64 = AtomicU64::new(0);
 
@@ -70,43 +73,62 @@ pub struct X86StorageDriver {
 
 impl X86StorageDriver {
     pub fn new() -> Self {
-        Self {
-            initialized: false,
+        unsafe {
+            // Disable ATA interrupts by setting nIEN (bit 1) in the Device Control Register
+            // Primary ATA Device Control Register is at 0x3F6
+            outb(ATA_PRIMARY_CTRL, 0x02);
+            // Secondary ATA Device Control Register is at 0x376
+            outb(0x376, 0x02);
         }
+        Self { initialized: false }
     }
 
     // ATA/IDE helper functions
     unsafe fn ata_wait_bsy(&self, base: u16) {
-        loop {
+        for _ in 0..100_000 {
             let status = inb(base + 7);
             if (status & 0x80) == 0 {
-                break;
+                return;
             }
+            core::arch::asm!("pause", options(nomem, nostack));
         }
     }
 
     unsafe fn ata_wait_drq(&self, base: u16) {
-        loop {
+        for _ in 0..100_000 {
             let status = inb(base + 7);
             if (status & 0x08) != 0 {
-                break;
+                return;
             }
+            if (status & 0x01) != 0 {
+                return;
+            }
+            core::arch::asm!("pause", options(nomem, nostack));
         }
     }
 
-    unsafe fn ata_read_sectors(&mut self, base: u16, lba: u32, count: u8, buffer: &mut [u8]) -> Result<(), StorageError> {
+    unsafe fn ata_read_sectors(
+        &mut self,
+        base: u16,
+        drive: u8,
+        lba: u32,
+        count: u8,
+        buffer: &mut [u8],
+    ) -> Result<(), StorageError> {
         self.ata_wait_bsy(base);
-        outb(base + 6, 0xE0 | ((lba >> 24) & 0x0F)); // Drive 0, LBA28
-        outb(base + 2, count); // Sector count
-        outb(base + 3, lba as u8); // LBA 0-7
-        outb(base + 4, (lba >> 8) as u8); // LBA 8-15
-        outb(base + 5, (lba >> 16) as u8); // LBA 16-23
+
+        outb(base + 6, 0xE0 | ((drive & 1) << 4) | (((lba >> 24) & 0x0F) as u8)); // Drive, LBA28
+        outb(base + 2, count);
+        outb(base + 3, (lba & 0xFF) as u8);
+        outb(base + 4, ((lba >> 8) & 0xFF) as u8);
+        outb(base + 5, ((lba >> 16) & 0xFF) as u8);
         outb(base + 7, 0x20); // Read sectors command
-        self.ata_wait_bsy(base);
-        self.ata_wait_drq(base);
 
         for i in 0..count as usize {
-            for j in 0..256 { // 512 bytes per sector, read as 16-bit words
+            self.ata_wait_bsy(base);
+            self.ata_wait_drq(base);
+            for j in 0..256 {
+                // 512 bytes per sector, read as 16-bit words
                 let word = inw(base + 0);
                 buffer[i * 512 + j * 2] = (word & 0xFF) as u8;
                 buffer[i * 512 + j * 2 + 1] = (word >> 8) as u8;
@@ -115,9 +137,17 @@ impl X86StorageDriver {
         Ok(())
     }
 
-    unsafe fn ata_write_sectors(&mut self, base: u16, lba: u32, count: u8, data: &[u8]) -> Result<(), StorageError> {
+    unsafe fn ata_write_sectors(
+        &mut self,
+        base: u16,
+        drive: u8,
+        lba: u32,
+        count: u8,
+        data: &[u8],
+    ) -> Result<(), StorageError> {
         self.ata_wait_bsy(base);
-        outb(base + 6, 0xE0 | ((lba >> 24) & 0x0F)); // Drive 0, LBA28
+        let drive_bit = (drive & 1) << 4;
+        outb(base + 6, 0xE0 | drive_bit | (((lba >> 24) & 0x0F) as u8)); // Drive, LBA28
         outb(base + 2, count); // Sector count
         outb(base + 3, lba as u8); // LBA 0-7
         outb(base + 4, (lba >> 8) as u8); // LBA 8-15
@@ -127,11 +157,19 @@ impl X86StorageDriver {
         self.ata_wait_drq(base);
 
         for i in 0..count as usize {
-            for j in 0..256 { // 512 bytes per sector, write as 16-bit words
-                let word = (data[i * 512 + j * 2] as u16) | ((data[i * 512 + j * 2 + 1] as u16) << 8);
+            self.ata_wait_bsy(base);
+            self.ata_wait_drq(base);
+            for j in 0..256 {
+                // 512 bytes per sector, write as 16-bit words
+                let word =
+                    (data[i * 512 + j * 2] as u16) | ((data[i * 512 + j * 2 + 1] as u16) << 8);
                 outw(base + 0, word);
             }
+            // After writing a sector, wait for the drive to flush or clear BSY if it's not the last sector?
+            // Actually, waiting before the next sector in the loop is sufficient.
         }
+        // One final wait for BSY just in case
+        self.ata_wait_bsy(base);
         Ok(())
     }
 }
@@ -158,7 +196,7 @@ impl StorageDriver for X86StorageDriver {
         devices.push(StorageDevice {
             id: 0,
             name: "XPARQ RAM Disk",
-            device_type: StorageType::SolidState,
+            device_type: StorageType::RAMDisk,
             interface: StorageInterface::Virtual,
             info: StorageInfo {
                 model: "XPARQ RAM Disk 64MB",
@@ -172,79 +210,122 @@ impl StorageDriver for X86StorageDriver {
                 temperature: None,
                 health: StorageHealth::Good,
             },
-            capabilities: StorageCapabilities {
-                read_cache: true,
-                write_cache: true,
-                command_queueing: false,
-                trim_support: false,
-                encryption: false,
-                power_management: false,
-                smart_support: false,
-                wear_leveling: false,
-            },
+            capabilities: StorageCapabilities::default(),
         });
-        // ATA Primary Master (QEMU disk.img)
+
+        // ATA Primary Master
         devices.push(StorageDevice {
             id: 1,
-            name: "QEMU ATA Primary Master",
+            name: "ATA Primary Master",
             device_type: StorageType::HardDisk,
-            interface: StorageInterface::ATA,
+            interface: StorageInterface::IDE,
             info: StorageInfo {
-                model: "QEMU ATA HDD",
-                serial: "QEMU-ATA-12345",
+                model: "QEMU ATA HDD (Master)",
+                serial: "QEMU-ATA-1",
                 firmware: "v1.0.0",
-                capacity: 32 * 1024, // 32KB (matches disk.img size)
+                capacity: 32 * 1024,
                 block_size: 512,
                 sector_size: 512,
-                total_blocks: 64, // 32KB / 512 bytes
+                total_blocks: 64,
                 usable_blocks: 64,
                 temperature: None,
                 health: StorageHealth::Good,
             },
-            capabilities: StorageCapabilities {
-                read_cache: true,
-                write_cache: true,
-                command_queueing: false,
-                trim_support: false,
-                encryption: false,
-                power_management: false,
-                smart_support: false,
-                wear_leveling: false,
-            },
+            capabilities: StorageCapabilities::default(),
         });
-        // NVMe Device (skeleton)
+
+        // ATA Primary Slave
         devices.push(StorageDevice {
             id: 2,
-            name: "XPARQ NVMe SSD",
-            device_type: StorageType::SolidState,
-            interface: StorageInterface::NVMe,
+            name: "ATA Primary Slave",
+            device_type: StorageType::HardDisk,
+            interface: StorageInterface::IDE,
             info: StorageInfo {
-                model: "XPARQ NVMe SSD 256GB",
-                serial: "XPARQ-NVME-0001",
+                model: "QEMU ATA HDD (Slave)",
+                serial: "QEMU-ATA-2",
                 firmware: "v1.0.0",
-                capacity: 256 * 1024 * 1024 * 1024, // 256 GB
+                capacity: 34 * 1024 * 1024,
                 block_size: 512,
                 sector_size: 512,
-                total_blocks: (256 * 1024 * 1024 * 1024) / 512,
-                usable_blocks: (256 * 1024 * 1024 * 1024) / 512,
+                total_blocks: (34 * 1024 * 1024) / 512,
+                usable_blocks: (34 * 1024 * 1024) / 512,
                 temperature: None,
                 health: StorageHealth::Good,
             },
-            capabilities: StorageCapabilities {
-                read_cache: true,
-                write_cache: true,
-                command_queueing: true,
-                trim_support: true,
-                encryption: false,
-                power_management: false,
-                smart_support: false,
-                wear_leveling: false,
-            },
+            capabilities: StorageCapabilities::default(),
         });
+
+        // AHCI Ports
+        let ahci = AHCI_DRIVER.lock();
+        let active_ports = ahci.get_active_ports();
+        for (port, &active) in active_ports.iter().enumerate() {
+            if active {
+                devices.push(StorageDevice {
+                    id: 10 + port as u32,
+                    name: "SATA Drive",
+                    device_type: StorageType::HardDisk,
+                    interface: StorageInterface::SATA,
+                    info: StorageInfo {
+                        model: "SATA Drive",
+                        serial: "SATA-SERIAL",
+                        firmware: "v1.0.0",
+                        capacity: 10 * 1024 * 1024 * 1024, // 10GB dummy
+                        block_size: 512,
+                        sector_size: 512,
+                        total_blocks: (10 * 1024 * 1024 * 1024) / 512,
+                        usable_blocks: (10 * 1024 * 1024 * 1024) / 512,
+                        temperature: None,
+                        health: StorageHealth::Good,
+                    },
+                    capabilities: StorageCapabilities {
+                        command_queueing: true,
+                        ..StorageCapabilities::default()
+                    },
+                });
+            }
+        }
+
+        // NVMe Device
+        let nvme = NVME_DRIVER.lock();
+        if nvme.initialized {
+            devices.push(StorageDevice {
+                id: 2,
+                name: "NVMe SSD",
+                device_type: StorageType::SolidState,
+                interface: StorageInterface::NVMe,
+                info: StorageInfo {
+                    model: "NVMe SSD",
+                    serial: "NVME-SERIAL",
+                    firmware: "v1.0.0",
+                    capacity: 256 * 1024 * 1024 * 1024,
+                    block_size: 512,
+                    sector_size: 512,
+                    total_blocks: (256 * 1024 * 1024 * 1024) / 512,
+                    usable_blocks: (256 * 1024 * 1024 * 1024) / 512,
+                    temperature: None,
+                    health: StorageHealth::Good,
+                },
+                capabilities: StorageCapabilities {
+                    command_queueing: true,
+                    trim_support: true,
+                    ..StorageCapabilities::default()
+                },
+            });
+        }
+
         devices
     }
 
     fn read(&mut self, device_id: u32, lba: u64, buffer: &mut [u8]) -> Result<(), StorageError> {
+        if device_id >= 10 && device_id < 42 {
+            let port = (device_id - 10) as usize;
+            let count = (buffer.len() / 512) as u16;
+            let mut ahci = AHCI_DRIVER.lock();
+            return ahci
+                .read(port, lba, count, buffer.as_mut_ptr())
+                .map_err(|_| StorageError::ReadError);
+        }
+
         match device_id {
             0 => {
                 // RAM disk
@@ -263,25 +344,42 @@ impl StorageDriver for X86StorageDriver {
                 Ok(())
             }
             1 => {
-                // ATA/IDE drive
+                // ATA/IDE drive (Master)
                 let count = buffer.len() / 512;
                 if count > 255 {
                     return Err(StorageError::InvalidParameter);
                 }
-                unsafe {
-                    self.ata_read_sectors(ATA_PRIMARY_BASE, lba as u32, count as u8, buffer)
-                }
+                unsafe { self.ata_read_sectors(ATA_PRIMARY_BASE, 0, lba as u32, count as u8, buffer) }
             }
             2 => {
-                // NVMe drive (skeleton)
-                // TODO: Implement actual NVMe read
-                Ok(())
+                // ATA/IDE drive (Slave)
+                let count = buffer.len() / 512;
+                if count > 255 {
+                    return Err(StorageError::InvalidParameter);
+                }
+                unsafe { self.ata_read_sectors(ATA_PRIMARY_BASE, 1, lba as u32, count as u8, buffer) }
+            }
+            3 => {
+                // NVMe drive
+                let count = (buffer.len() / 512) as u16;
+                let mut nvme = NVME_DRIVER.lock();
+                nvme.read_blocks(lba, count, buffer.as_mut_ptr())
+                    .map_err(|_| StorageError::ReadError)
             }
             _ => Err(StorageError::DeviceNotFound),
         }
     }
 
     fn write(&mut self, device_id: u32, lba: u64, data: &[u8]) -> Result<(), StorageError> {
+        if device_id >= 10 && device_id < 42 {
+            let port = (device_id - 10) as usize;
+            let count = (data.len() / 512) as u16;
+            let mut ahci = AHCI_DRIVER.lock();
+            return ahci
+                .write(port, lba, count, data.as_ptr())
+                .map_err(|_| StorageError::WriteError);
+        }
+
         match device_id {
             0 => {
                 // RAM disk
@@ -300,19 +398,27 @@ impl StorageDriver for X86StorageDriver {
                 Ok(())
             }
             1 => {
-                // ATA/IDE drive
+                // ATA/IDE drive (Master)
                 let count = data.len() / 512;
                 if count > 255 {
                     return Err(StorageError::InvalidParameter);
                 }
-                unsafe {
-                    self.ata_write_sectors(ATA_PRIMARY_BASE, lba as u32, count as u8, data)
-                }
+                unsafe { self.ata_write_sectors(ATA_PRIMARY_BASE, 0, lba as u32, count as u8, data) }
             }
             2 => {
-                // NVMe drive (skeleton)
-                // TODO: Implement actual NVMe write
-                Ok(())
+                // ATA/IDE drive (Slave)
+                let count = data.len() / 512;
+                if count > 255 {
+                    return Err(StorageError::InvalidParameter);
+                }
+                unsafe { self.ata_write_sectors(ATA_PRIMARY_BASE, 1, lba as u32, count as u8, data) }
+            }
+            3 => {
+                // NVMe drive
+                let count = (data.len() / 512) as u16;
+                let mut nvme = NVME_DRIVER.lock();
+                nvme.write_blocks(lba, count, data.as_ptr())
+                    .map_err(|_| StorageError::WriteError)
             }
             _ => Err(StorageError::DeviceNotFound),
         }

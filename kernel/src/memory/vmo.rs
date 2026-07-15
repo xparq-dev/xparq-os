@@ -231,38 +231,36 @@ impl VmoManager {
     pub fn resize_vmo(&self, vmo_id: u64, new_size: usize) -> Result<(), MemoryError> {
         let mut registry = self.vmos.lock();
         
-        for (id, vmo) in &mut registry.vmos {
-            if *id == vmo_id {
-                if !vmo.flags.resizable {
-                    return Err(MemoryError::PermissionDenied);
-                }
-                
-                if new_size % 4096 != 0 {
-                    return Err(MemoryError::InvalidSize);
-                }
-                
-                let size_diff = new_size as isize - vmo.size as isize;
-                
-                if size_diff > 0 {
-                    // Growing VMO
-                    if (size_diff as usize) > registry.available_bytes - registry.committed_bytes {
-                        return Err(MemoryError::OutOfMemory);
-                    }
-                    
-                    registry.committed_bytes += size_diff as usize;
-                } else {
-                    // Shrinking VMO
-                    registry.committed_bytes -= (-size_diff) as usize;
-                }
-                
-                vmo.size = new_size;
-                println!("Resized VMO {} to {} bytes", vmo_id, new_size);
-                
-                return Ok(());
-            }
+        let index = registry.vmos.iter().position(|(id, _)| *id == vmo_id)
+            .ok_or(MemoryError::InvalidAddress)?;
+            
+        if !registry.vmos[index].1.flags.resizable {
+            return Err(MemoryError::PermissionDenied);
         }
         
-        Err(MemoryError::InvalidAddress)
+        if new_size % 4096 != 0 {
+            return Err(MemoryError::InvalidSize);
+        }
+        
+        let old_size = registry.vmos[index].1.size;
+        let size_diff = new_size as isize - old_size as isize;
+        
+        if size_diff > 0 {
+            // Growing VMO
+            if (size_diff as usize) > registry.available_bytes - registry.committed_bytes {
+                return Err(MemoryError::OutOfMemory);
+            }
+            
+            registry.committed_bytes += size_diff as usize;
+        } else {
+            // Shrinking VMO
+            registry.committed_bytes -= (-size_diff) as usize;
+        }
+        
+        registry.vmos[index].1.size = new_size;
+        println!("Resized VMO {} to {} bytes", vmo_id, new_size);
+        
+        Ok(())
     }
     
     /// Get VMO information

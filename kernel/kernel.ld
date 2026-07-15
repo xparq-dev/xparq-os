@@ -3,7 +3,7 @@ ENTRY(_start)
 SECTIONS
 {
     /* Load address of the kernel */
-    . = 0x10000;
+    . = 0x100000;
 
     .text :
     {
@@ -24,6 +24,8 @@ SECTIONS
 
     .bss :
     {
+        __bss_start = .;
         *(.bss .bss.*)
+        __bss_end = .;
     }
 }

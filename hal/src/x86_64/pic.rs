@@ -10,29 +10,40 @@ const PIC2_DATA: u16 = 0xA1;
 
 /// Initialize and disable both PICs
 pub fn disable_pic() {
-    // Mask all interrupts first
     unsafe {
-        write_volatile(PIC1_DATA as *mut u8, 0xFF);
-        write_volatile(PIC2_DATA as *mut u8, 0xFF);
+        // Mask all interrupts
+        core::arch::asm!(
+            "out dx, al",
+            in("dx") PIC1_DATA,
+            in("al") 0xFFu8,
+            options(nomem, nostack)
+        );
+        core::arch::asm!(
+            "out dx, al",
+            in("dx") PIC2_DATA,
+            in("al") 0xFFu8,
+            options(nomem, nostack)
+        );
 
         // Send initialization command (ICW1 - start initialization sequence)
-        write_volatile(PIC1_COMMAND as *mut u8, 0x11);
-        write_volatile(PIC2_COMMAND as *mut u8, 0x11);
+        core::arch::asm!("out dx, al", in("dx") PIC1_COMMAND, in("al") 0x11u8, options(nomem, nostack));
+        core::arch::asm!("out dx, al", in("dx") PIC2_COMMAND, in("al") 0x11u8, options(nomem, nostack));
 
         // ICW2 - map IRQs to vectors (we don't care, just any offset)
-        write_volatile(PIC1_DATA as *mut u8, 0x20); // IRQ0 → 32
-        write_volatile(PIC2_DATA as *mut u8, 0x28); // IRQ8 → 40
+        core::arch::asm!("out dx, al", in("dx") PIC1_DATA, in("al") 0x20u8, options(nomem, nostack)); // IRQ0 → 32
+        core::arch::asm!("out dx, al", in("dx") PIC2_DATA, in("al") 0x28u8, options(nomem, nostack)); // IRQ8 → 40
 
         // ICW3 - configure PIC2 at IRQ2 of PIC1
-        write_volatile(PIC1_DATA as *mut u8, 0x04);
-        write_volatile(PIC2_DATA as *mut u8, 0x02);
+        core::arch::asm!("out dx, al", in("dx") PIC1_DATA, in("al") 0x04u8, options(nomem, nostack));
+        core::arch::asm!("out dx, al", in("dx") PIC2_DATA, in("al") 0x02u8, options(nomem, nostack));
 
-        // ICW4 - 8086/88 mode, no special features
-        write_volatile(PIC1_DATA as *mut u8, 0x01);
-        write_volatile(PIC2_DATA as *mut u8, 0x01);
+        // ICW4 - 8086 mode
+        core::arch::asm!("out dx, al", in("dx") PIC1_DATA, in("al") 0x01u8, options(nomem, nostack));
+        core::arch::asm!("out dx, al", in("dx") PIC2_DATA, in("al") 0x01u8, options(nomem, nostack));
 
-        // Mask all interrupts again (to fully disable them)
-        write_volatile(PIC1_DATA as *mut u8, 0xFF);
-        write_volatile(PIC2_DATA as *mut u8, 0xFF);
+        // Restore masks (mask all)
+        core::arch::asm!("out dx, al", in("dx") PIC1_DATA, in("al") 0xFFu8, options(nomem, nostack));
+        core::arch::asm!("out dx, al", in("dx") PIC2_DATA, in("al") 0xFFu8, options(nomem, nostack));
     }
 }
+

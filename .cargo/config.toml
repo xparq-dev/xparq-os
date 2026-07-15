@@ -12,7 +12,6 @@ linker = "rust-lld"
 runner = "qemu-system-x86_64 -machine q35 -cpu qemu64 -m 512M -nographic -kernel"
 linker = "rust-lld"
 rustflags = [
-    "-C", "link-arg=-Tkernel/kernel.ld",
     "-C", "relocation-model=static",
 ]
 

@@ -30,7 +30,7 @@ pub trait ConnectivityDriver {
     
     /// Receive data
     fn receive(&mut self, buffer: &mut [u8]) -> Result<usize, ConnectivityError>;
-    
+
     /// Enable/disable device
     fn set_enabled(&mut self, enabled: bool) -> Result<(), ConnectivityError>;
     
@@ -117,8 +117,8 @@ bitflags! {
 
 /// Connectivity manager
 pub struct ConnectivityManager {
-    /// Registered connectivity drivers - simplified for no_std
-    drivers: ArrayVec<*const (), 8>,
+    /// Network drivers
+    drivers: ArrayVec<usize, 8>,
     /// Active connectivity devices
     devices: ArrayVec<ConnectivityDeviceHandle, 8>,
     /// Next device ID
@@ -137,10 +137,10 @@ pub struct ConnectivityDeviceHandle {
 
 impl ConnectivityManager {
     /// Create new connectivity manager
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
-            drivers: ArrayVec::new(),
-            devices: ArrayVec::new(),
+            drivers: ArrayVec::new_const(),
+            devices: ArrayVec::new_const(),
             next_id: 1,
         }
     }
@@ -156,6 +156,24 @@ impl ConnectivityManager {
     pub fn get_device(&self, id: u32) -> Option<&ConnectivityDeviceHandle> {
         self.devices.iter().find(|device| device.id == id)
     }
+
+    /// Get all devices
+    pub fn get_devices(&self) -> &[ConnectivityDeviceHandle] {
+        &self.devices
+    }
+
+    /// Register a connectivity device
+    pub fn register_device(&mut self, driver_name: &'static str, info: ConnectivityDeviceInfo) {
+        let handle = ConnectivityDeviceHandle {
+            id: self.next_id,
+            driver_name,
+            info,
+            connected: true,
+            enabled: true,
+        };
+        let _ = self.devices.try_push(handle);
+        self.next_id += 1;
+    }
 }
 
 impl Default for ConnectivityManager {
@@ -164,9 +182,11 @@ impl Default for ConnectivityManager {
     }
 }
 
+use spin::Mutex;
+pub static CONNECTIVITY_MANAGER: Mutex<ConnectivityManager> = Mutex::new(ConnectivityManager::new());
+
 /// Initialize connectivity subsystem
 pub fn init() -> Result<(), ConnectivityError> {
-    println!("Initializing connectivity subsystem...");
-    // Phase 3: Initialize connectivity drivers
+    // Note: Actual device discovery is done via PCI enumeration in the arch-specific code
     Ok(())
 }

@@ -117,8 +117,10 @@ If you are an AI agent continuing work in this repository:
   - ✅ Added Audio and Sensors subsystem modules to HAL!
   - ✅ Updated DeviceManager to handle new audio and sensor drivers!
   - ✅ Updated HAL lib.rs init() to initialize audio and sensors too!
+  - ✅ Implemented foundational USB Device Enumeration (xHCI event ring polling, port reset, and enable slot commands).
+  - ✅ **Phase 3.5 Started!** Built the first Desktop GUI Window Manager using the VBE Framebuffer. Mouse events now move a graphical cursor and can activate windows!
+  - ✅ **Phase 3.5 GUI Polish!** Implemented Z-Order stacking, window dragging, floating dock taskbar, minimize/maximize/close buttons, and in-window text rendering!
   - ✅ Updated docs/implementation-status.md!
 
 - Next smallest executable step:
-  - Start Phase 3.5 x86 desktop platform implementation!
-  - (Optional) Improve existing Phase 3 components (add NVMe to storage, add ACPI to power, etc.)
+  - Advance the USB HID stack: Issue Address Device command and parse HID Report Descriptors.

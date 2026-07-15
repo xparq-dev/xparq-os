@@ -193,6 +193,8 @@ pub enum StorageError {
     NoSpaceLeft,
     /// Write protected
     WriteProtected,
+    /// Invalid parameter
+    InvalidParameter,
 }
 
 /// Storage manager
@@ -364,7 +366,7 @@ pub fn init() -> Result<(), super::HalError> {
             println!("Initializing x86-64 storage drivers");
         }
         
-        if let Some(manager) = &mut STORAGE_MANAGER {
+        if let Some(manager) = (*(&raw mut STORAGE_MANAGER)).as_mut() {
             manager.init_all()?;
             manager.enumerate_devices()?;
         }
@@ -376,12 +378,12 @@ pub fn init() -> Result<(), super::HalError> {
 
 /// Get global storage manager
 pub fn get_storage_manager() -> Option<&'static StorageManager> {
-    unsafe { STORAGE_MANAGER.as_ref() }
+    unsafe { (*(&raw const STORAGE_MANAGER)).as_ref() }
 }
 
 /// Get mutable global storage manager
 pub fn get_storage_manager_mut() -> Option<&'static mut StorageManager> {
-    unsafe { STORAGE_MANAGER.as_mut() }
+    unsafe { (*(&raw mut STORAGE_MANAGER)).as_mut() }
 }
 
 /// Storage utilities

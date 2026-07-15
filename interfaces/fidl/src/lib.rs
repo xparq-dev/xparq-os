@@ -288,7 +288,7 @@ pub mod registry {
         interface_id: u32,
         server_handle: u32,
     ) -> FidlResult<()> {
-        let registry = unsafe { SERVICE_REGISTRY.as_mut().unwrap() };
+        let registry = unsafe { (*(&raw mut SERVICE_REGISTRY)).as_mut().unwrap() };
         
         if registry.len() >= 64 {
             return Err(FidlError::ResourceExhausted);
@@ -308,7 +308,7 @@ pub mod registry {
     
     /// Find service by name
     pub fn find_service(name: &str) -> Option<ServiceEntry> {
-        let registry = unsafe { SERVICE_REGISTRY.as_ref().unwrap() };
+        let registry = unsafe { (*(&raw const SERVICE_REGISTRY)).as_ref().unwrap() };
         
         for entry in registry {
             if entry.name == name {
@@ -321,7 +321,7 @@ pub mod registry {
     
     /// Find service by interface ID
     pub fn find_service_by_interface(interface_id: u32) -> Option<ServiceEntry> {
-        let registry = unsafe { SERVICE_REGISTRY.as_ref().unwrap() };
+        let registry = unsafe { (*(&raw const SERVICE_REGISTRY)).as_ref().unwrap() };
         
         for entry in registry {
             if entry.interface_id == interface_id {
@@ -334,7 +334,7 @@ pub mod registry {
     
     /// List all services
     pub fn list_services() -> &'static [ServiceEntry] {
-        let registry = unsafe { SERVICE_REGISTRY.as_ref().unwrap() };
+        let registry = unsafe { (*(&raw const SERVICE_REGISTRY)).as_ref().unwrap() };
         registry
     }
 }

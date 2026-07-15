@@ -4,6 +4,8 @@
 
 #![no_std]
 
+extern crate alloc;
+use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::sync::atomic::{AtomicU64, Ordering};
 
@@ -160,7 +162,6 @@ pub struct CapabilityManager {
 }
 
 /// Object registry - stores all kernel objects
-#[derive(Debug)]
 struct ObjectRegistry {
     /// Map from handle ID to object
     objects: arrayvec::ArrayVec<(u64, Box<dyn Object + Send + Sync>), 1024>,
@@ -223,7 +224,8 @@ impl CapabilityManager {
         
         for (id, obj) in &registry.objects {
             if *id == handle.id {
-                return Ok(obj.as_ref());
+                let raw_ptr = obj.as_ref() as *const dyn Object;
+                return Ok(unsafe { &*raw_ptr });
             }
         }
         
