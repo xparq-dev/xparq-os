@@ -18,16 +18,18 @@ pub struct Ps2Mouse {
     packet_idx: usize,
     buttons: MouseButtons,
     event_queue: Mutex<ArrayVec<InputEvent, 64>>,
+    callback: Option<fn(&InputEvent)>,
 }
 
 impl Ps2Mouse {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             initialized: false,
             packet: [0u8; 3],
             packet_idx: 0,
             buttons: MouseButtons::empty(),
-            event_queue: Mutex::new(ArrayVec::new()),
+            event_queue: Mutex::new(ArrayVec::new_const()),
+            callback: None,
         }
     }
 
@@ -73,10 +75,10 @@ impl Ps2Mouse {
     }
 
     /// Interrupt handler for mouse
-    pub fn irq_handler(&mut self) {
+    pub fn irq_handler(&mut self) -> bool {
         unsafe {
             if (crate::hal_inb(PS2_STATUS_PORT) & 0x01) == 0 {
-                return;
+                return false;
             }
         }
 
@@ -89,15 +91,25 @@ impl Ps2Mouse {
             let dx = dx as i8 as i32;
             let dy = dy as i8 as i32;
             
+            let previous_buttons = self.buttons;
             self.buttons = MouseButtons::empty();
             if flags & 0x01 != 0 { self.buttons |= MouseButtons::LEFT; }
             if flags & 0x02 != 0 { self.buttons |= MouseButtons::RIGHT; }
             if flags & 0x04 != 0 { self.buttons |= MouseButtons::MIDDLE; }
+            let pressed = self.buttons.bits() & !previous_buttons.bits();
+            let released = previous_buttons.bits() & !self.buttons.bits();
+            let event_kind = if pressed != 0 {
+                InputEventKind::MouseDown
+            } else if released != 0 {
+                InputEventKind::MouseUp
+            } else {
+                InputEventKind::MouseMove
+            };
 
             let event = InputEvent {
                 timestamp: 0,
                 device_type: InputDeviceType::Mouse,
-                event_kind: InputEventKind::MouseMove,
+                event_kind,
                 data: InputEventData::Mouse {
                     x: dx, y: -dy, // PS/2 mouse Y is inverted
                     buttons: self.buttons,
@@ -106,8 +118,15 @@ impl Ps2Mouse {
             };
 
             let mut queue = self.event_queue.lock();
-            let _ = queue.try_push(event);
+            let _ = queue.try_push(event.clone());
+            drop(queue);
+
+            if let Some(callback) = self.callback {
+                callback(&event);
+            }
+            return true;
         }
+        false
     }
 }
 
@@ -117,22 +136,43 @@ impl InputDriver for Ps2Mouse {
     }
 
     fn init(&mut self) -> Result<(), InputError> {
-        // Enable second PS/2 port
-        self.write_command(0xA8);
+        self.write_command(0xA9); // Test second PS/2 port.
+        if self.read_data() != 0x00 {
+            super::trace_log(b"XPARQ_TEST:FAIL:PS2_MOUSE_PORT_TEST\n");
+            return Err(InputError::HardwareFailure);
+        }
 
-        // Enable interrupts for second port
-        self.write_command(0x20); // Read config byte
+        // Enable the second port while keeping its IRQ masked during handshake.
+        self.write_command(0xA8);
+        self.write_command(0x20);
         let mut config = self.read_data();
-        config |= 0x02; // Enable second port IRQ
+        config &= !0x02;
+        config &= !0x20;
         self.write_command(0x60);
         self.write_data(config);
 
-        // Enable mouse packet streaming
-        self.write_command(0xD4); // Send to second port
-        self.write_data(0xF4); // Enable streaming
-        if !self.wait_ack() {
+        // Reset the device and consume ACK, BAT completion, and device ID.
+        self.write_command(0xD4);
+        self.write_data(0xFF);
+        if !self.wait_ack() || self.read_data() != 0xAA || self.read_data() != 0x00 {
+            super::trace_log(b"XPARQ_TEST:FAIL:PS2_MOUSE_RESET\n");
             return Err(InputError::HardwareFailure);
         }
+
+        self.write_command(0xD4);
+        self.write_data(0xF4); // Enable packet streaming.
+        if !self.wait_ack() {
+            super::trace_log(b"XPARQ_TEST:FAIL:PS2_MOUSE_ENABLE\n");
+            return Err(InputError::HardwareFailure);
+        }
+
+        // Unmask IRQ12 only after all mouse responses have been consumed.
+        self.write_command(0x20);
+        let mut config = self.read_data();
+        config |= 0x02;
+        config &= !0x20;
+        self.write_command(0x60);
+        self.write_data(config);
 
         self.initialized = true;
         Ok(())
@@ -158,7 +198,9 @@ impl InputDriver for Ps2Mouse {
         self.event_queue.lock().pop_at(0)
     }
 
-    fn set_event_callback(&mut self, _callback: Option<fn(&InputEvent)>) {}
+    fn set_event_callback(&mut self, callback: Option<fn(&InputEvent)>) {
+        self.callback = callback;
+    }
 
     fn set_enabled(&mut self, _enabled: bool) -> Result<(), InputError> { Ok(()) }
 

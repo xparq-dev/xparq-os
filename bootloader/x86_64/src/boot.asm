@@ -75,11 +75,6 @@ pmode:
     mov gs,ax
     mov esp,0x7B00
 
-    ; 3
-    mov edi,0xB8000
-    mov byte [edi+10],'3'
-    mov byte [edi+11],0x6F
-
     ; Page tables at 0x70000
     mov edi,0x70000
     xor eax,eax
@@ -96,10 +91,6 @@ pmode:
     add eax,0x200000
     add edi,8
     loop .pde
-
-    mov edi,0xB8000
-    mov byte [edi+12],'P'
-    mov byte [edi+13],0xAF
 
     ; PAE on
     mov eax,cr4
@@ -132,10 +123,6 @@ lmode:
     mov fs,ax
     mov gs,ax
     mov rsp,0x80000
-
-    mov edi,0xB8000
-    mov byte [edi+14],'6'
-    mov byte [edi+15],0x70
 
     ; Copy kernel from 0x10000 to 0x100000 (480 KB)
     mov rsi, 0x10000

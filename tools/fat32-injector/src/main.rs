@@ -3,6 +3,24 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use fatfs::{FileSystem, FsOptions};
 
+#[derive(Debug)]
+struct ReproducibleTimeProvider;
+
+impl fatfs::TimeProvider for ReproducibleTimeProvider {
+    fn get_current_date(&self) -> fatfs::Date {
+        fatfs::Date { year: 2026, month: 1, day: 1 }
+    }
+
+    fn get_current_date_time(&self) -> fatfs::DateTime {
+        fatfs::DateTime {
+            date: self.get_current_date(),
+            time: fatfs::Time { hour: 0, min: 0, sec: 0, millis: 0 },
+        }
+    }
+}
+
+static REPRODUCIBLE_TIME_PROVIDER: ReproducibleTimeProvider = ReproducibleTimeProvider;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
@@ -45,7 +63,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let buf_stream = fscommon::BufStream::new(img_file);
     
     // Mount the FAT32 filesystem
-    let fs = FileSystem::new(buf_stream, FsOptions::new())?;
+    let fs = FileSystem::new(
+        buf_stream,
+        FsOptions::new().time_provider(&REPRODUCIBLE_TIME_PROVIDER),
+    )?;
     
     // Get root directory
     let root = fs.root_dir();

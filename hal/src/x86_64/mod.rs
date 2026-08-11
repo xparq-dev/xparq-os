@@ -33,6 +33,7 @@ use crate::x86_64::usb::XHCI_PCI_DRIVER;
 use crate::x86_64::e1000::E1000_PCI_DRIVER;
 use audio::X86AudioDriver;
 use core::fmt::Write;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use display::X86Display;
 use keyboard::Ps2Keyboard;
 use mouse::Ps2Mouse;
@@ -43,10 +44,10 @@ use storage::X86StorageDriver;
 pub static DISPLAY: Mutex<Option<X86Display>> = Mutex::new(None);
 
 /// Static PS/2 keyboard driver instance
-pub static PS2_KEYBOARD: Mutex<Option<Ps2Keyboard>> = Mutex::new(None);
+pub static PS2_KEYBOARD: Mutex<Ps2Keyboard> = Mutex::new(Ps2Keyboard::new());
 
 /// Static PS/2 mouse driver instance
-pub static PS2_MOUSE: Mutex<Option<Ps2Mouse>> = Mutex::new(None);
+pub static PS2_MOUSE: Mutex<Ps2Mouse> = Mutex::new(Ps2Mouse::new());
 
 /// Static storage driver instance
 pub static STORAGE: Mutex<Option<X86StorageDriver>> = Mutex::new(None);
@@ -57,18 +58,34 @@ pub static POWER: Mutex<Option<X86PowerDriver>> = Mutex::new(None);
 /// Static audio driver instance
 pub static AUDIO: Mutex<Option<X86AudioDriver>> = Mutex::new(None);
 
+static GATE1_KEYBOARD_EVENTS: AtomicUsize = AtomicUsize::new(0);
+static GATE1_MOUSE_EVENTS: AtomicUsize = AtomicUsize::new(0);
+const GATE1_KEYBOARD_EVENT_TARGET: usize = 8;
+const GATE1_MOUSE_EVENT_TARGET: usize = 4;
+
+/// True after both PS/2 drivers have processed repeated input events.
+pub fn gate1_input_ready() -> bool {
+    GATE1_KEYBOARD_EVENTS.load(Ordering::Relaxed) >= GATE1_KEYBOARD_EVENT_TARGET
+        && GATE1_MOUSE_EVENTS.load(Ordering::Relaxed) >= GATE1_MOUSE_EVENT_TARGET
+}
+
 /// Keyboard IRQ handler wrapper
 fn keyboard_irq_handler() {
-    trace_log(b"KBD_IRQ ");
-    if let Some(keyboard) = PS2_KEYBOARD.lock().as_mut() {
-        keyboard.irq_handler();
+    if PS2_KEYBOARD.lock().irq_handler()
+        && GATE1_KEYBOARD_EVENTS.fetch_add(1, Ordering::Relaxed) + 1
+            == GATE1_KEYBOARD_EVENT_TARGET
+    {
+        trace_log(b"XPARQ_TEST:GATE1:KEYBOARD_INPUT_OK\n");
     }
 }
 
 /// Mouse IRQ handler wrapper
 fn mouse_irq_handler() {
-    if let Some(mouse) = PS2_MOUSE.lock().as_mut() {
-        mouse.irq_handler();
+    if PS2_MOUSE.lock().irq_handler()
+        && GATE1_MOUSE_EVENTS.fetch_add(1, Ordering::Relaxed) + 1
+            == GATE1_MOUSE_EVENT_TARGET
+    {
+        trace_log(b"XPARQ_TEST:GATE1:MOUSE_INPUT_OK\n");
     }
 }
 
@@ -88,6 +105,11 @@ pub fn init_arch_specific() -> Result<(), HalError> {
     // Initialize display
     let mut display = display::X86Display::new();
     display.init()?;
+    if display.is_framebuffer() {
+        trace_log(b"XPARQ_DISPLAY:FRAMEBUFFER\n");
+    } else {
+        trace_log(b"XPARQ_DISPLAY:VGA_TEXT_FALLBACK\n");
+    }
     *DISPLAY.lock() = Some(display);
     trace_log(b"  -> Display init done\n");
 
@@ -148,14 +170,10 @@ pub fn init_arch_specific() -> Result<(), HalError> {
     trace_log(b"  -> Audio init done\n");
 
     // Initialize PS/2 keyboard and mouse
-    let mut keyboard = keyboard::Ps2Keyboard::new();
-    keyboard.init()?;
-    *PS2_KEYBOARD.lock() = Some(keyboard);
+    PS2_KEYBOARD.lock().init()?;
     trace_log(b"  -> Keyboard init done\n");
 
-    let mut mouse = mouse::Ps2Mouse::new();
-    let _ = mouse.init();
-    *PS2_MOUSE.lock() = Some(mouse);
+    let _ = PS2_MOUSE.lock().init();
     trace_log(b"  -> Mouse init done\n");
 
     // Register IRQ handlers

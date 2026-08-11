@@ -341,25 +341,23 @@ impl InputManager {
         #[cfg(target_arch = "x86_64")]
         {
             // Collect keyboard events
-            if let Some(mut keyboard) = crate::x86_64::PS2_KEYBOARD.lock().take() {
+            {
+                let mut keyboard = crate::x86_64::PS2_KEYBOARD.lock();
                 while let Some(event) = keyboard.get_event() {
                     if let Err(_) = self.event_queue.try_push(event) {
                         // Queue full - just drop the event for now
                     }
                 }
-                // Put it back
-                *crate::x86_64::PS2_KEYBOARD.lock() = Some(keyboard);
             }
             
             // Collect mouse events
-            if let Some(mut mouse) = crate::x86_64::PS2_MOUSE.lock().take() {
+            {
+                let mut mouse = crate::x86_64::PS2_MOUSE.lock();
                 while let Some(event) = mouse.get_event() {
                     if let Err(_) = self.event_queue.try_push(event) {
                         // Queue full - just drop the event for now
                     }
                 }
-                // Put it back
-                *crate::x86_64::PS2_MOUSE.lock() = Some(mouse);
             }
         }
         

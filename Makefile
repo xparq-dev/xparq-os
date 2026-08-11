@@ -3,6 +3,8 @@
 
 .PHONY: all clean arm64 x86_64 docs
 
+POWERSHELL ?= powershell
+
 # Default target
 all: arm64 x86_64
 
@@ -14,7 +16,7 @@ arm64:
 # x86-64 target  
 x86_64:
 	@echo "Building XPARQ OS for x86-64..."
-	./tools/build-x86_64.sh
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File ./tools/build-x86_64.ps1 --no-test
 
 # Documentation
 docs:
@@ -46,10 +48,9 @@ run-arm64: arm64
 	qemu-system-aarch64 -machine virt -cpu cortex-a72 -m 512M -nographic -kernel build/arm64/kernel.bin
 
 # Run on QEMU x86-64
-run-x86_64: x86_64
-	@echo "Running XPARQ OS on QEMU x86-64..."
-	@if [ ! -f build/x86-64/disk.img ]; then echo "Missing artifact: build/x86-64/disk.img"; exit 1; fi
-	qemu-system-x86_64 -drive format=raw,file=build/x86-64/disk.img -boot order=c -serial stdio -no-reboot -m 128M
+run-x86_64:
+	@echo "Building and smoke-testing XPARQ OS on QEMU x86-64..."
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File ./tools/build-x86_64.ps1
 
 # Flash to ARM device
 flash-arm64: arm64

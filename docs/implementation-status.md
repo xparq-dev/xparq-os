@@ -5,10 +5,12 @@ It is the source of truth for execution status and should be updated continuousl
 
 ## Current Stage
 
-- Program stage: Phase 2 complete for boot verification, **Phase 3 in progress**
+- Review baseline: 2026-08-11
+- Program stage: **Phase 3 stabilization in progress**, with an early Phase 3.5 desktop demonstrator
 - Repository type: Architecture-first with multiple active prototypes
-- Risk level: Medium (prototype code still exists, but boot path is now stable)
-- Phase 3 focus: HAL implementation starting with display subsystem
+- Risk level: Medium (current x86-64 HEAD has marker-based QEMU evidence; broad regression coverage remains missing)
+- Immediate focus: preserve the verified cooperative GUI baseline while designing a privilege-frame-compatible preemptive context switch
+- Stakeholder plan: `docs/stakeholder-plan-2026-08.md`
 
 ## Authoritative Paths (Current)
 
@@ -24,15 +26,16 @@ It is the source of truth for execution status and should be updated continuousl
 | Area | Authoritative Path | State | Notes |
 |---|---|---|---|
 | Kernel entrypoint | `kernel/src/main_simple.rs` | in-progress | Active binary entry per `kernel/Cargo.toml` |
-| Kernel richer flow | `kernel/src/main.rs`, `kernel/src/lib.rs` | in-progress | Valuable but not current binary source of truth |
+| Kernel richer flow | modules imported by `kernel/src/main_simple.rs` | in-progress | Former `kernel/src/main.rs` and `kernel/src/lib.rs` paths are no longer present |
 | Capability model | `kernel/src/capability.rs` | in-progress | Core model exists, many placeholders remain |
 | Memory model | `kernel/src/memory/` | in-progress | `VMO` is richer; `VMAR` still inconsistent in places |
-| Scheduler | `kernel/src/scheduler/mod.rs` | in-progress | Core structure exists; old duplicate file still present |
-| IPC/Channels | `kernel/src/ipc/` | in-progress | Framework exists, incomplete behavior |
-| Syscalls | `kernel/src/syscalls.rs` | stub | Many handlers are placeholders |
+| Scheduler/tasks | `kernel/src/task/` | in-progress | Ring 3 timed sleep uses the scheduler sleep queue with frame-preserving timer-vector parking; timer accounting/wakeup is active, but generic timer-driven Ring 3 context switching is intentionally disabled pending a privilege-frame-compatible switcher |
+| IPC/Channels | `kernel/src/ipc/` | verified slice | Gate 1 self-send/self-receive round trip passes 10/10 |
+| Syscalls | `kernel/src/syscall/` | verified slice | write, timed sleep, open/read/close, getpid, IPC, exit entry, and errno paths are exercised |
+| Desktop/input | `kernel/src/desktop.rs`, `hal/src/x86_64/{keyboard,mouse,display}.rs` | verified cooperative slice | QMP cursor, drag, Ring 3 typing, terminal output/redraw pass 10/10; CPU-bound Ring 3 code can still delay the GUI |
 | ARM bootloader | `bootloader/arm64/src/main_simple.rs` | in-progress | Cargo configured as staticlib (needs alignment later) |
 | x86 bootloader | `bootloader/x86_64/src/mbr.rs` | in-progress | Multiple x86 boot variants still coexist |
-| HAL | `hal/src/` | in-progress | Strong interface design, architecture-specific modules (x86_64/arm64) created, basic display drivers implemented, integrated with kernel boot path! |
+| HAL | `hal/src/` | in-progress | Broad x86-64 implementation exists; compile warnings and current-HEAD runtime validation remain |
 | FIDL interfaces | `interfaces/fidl/src/` | in-progress | Protocol modeling exists, transport/serialization partial |
 | Experimental kernel | `kernel-simple/` | prototype | Excluded from workspace; still useful for quick tests |
 
@@ -42,6 +45,21 @@ It is the source of truth for execution status and should be updated continuousl
 2. Duplicate architecture ownership (`kernel/arch/*` and top-level `arch/*`).
 3. Legacy/prototype files mixed with active files (`*_old.rs`, `*_simple.rs` variants).
 4. Documentation can overstate runtime completeness if not cross-checked with code.
+5. Automated coverage now includes Gate 0/Gate 1 QEMU scenarios and three MBR/FAT32 host tests, but remains narrow.
+
+## Verification Snapshot (2026-08-11)
+
+- Kernel, HAL, and `init` pass targeted `cargo check` for `x86_64-unknown-none`, with warnings.
+- Canonical build-only validation passes and produces a validated single disk image with FAT32 at LBA 2048.
+- Current HEAD boots through FAT32 mount, `INIT.ELF` load, Ring 3 entry, and `XPARQ_TEST:INIT_READY` (10/10 runs verified).
+- Targeted checks deny `static_mut_refs` and pass; other compile warnings remain.
+- Two clean builds produced identical artifact hashes; Gate 0 is complete. See `docs/gate-0-report-2026-08-07.md`.
+- The Gate 1 core user/kernel slice passes 10/10 on the current working tree. See `docs/gate-1-report-2026-08-07.md`.
+- Controlled Ring 3 page-fault diagnostics now record a marker, CR2, and the hardware error code through `--scenario gate1-fault`.
+- `--scenario gate1-input` proves QMP injection through IRQ1/IRQ12 and both PS/2 drivers, then continues to Ring 3 `INIT_READY`; the current stability run passes 10/10.
+- `--scenario gate1-gui` proves cooperative event pumping, cursor movement, terminal dragging, Ring 3 `help` input, and terminal redraw; it passes 10/10 with different before/after screenshots. See `docs/gate-1-gui-report-2026-08-11.md`.
+- Text rendering uses a committed reproducible 8x16 Roboto Mono alpha atlas under the Google Fonts OFL; two regenerations produced SHA-256 `51d23d2a2f9d10f491a895f932eac6fff83ccfccdd116e11cc969e404d0f28c5`.
+- The bounded Gate 1 acceptance slice is green. Generic timer-driven Ring 3 preemption is not claimed and remains the next scheduler-hardening item.
 
 ## Enforcement Rules (Starting Now)
 
@@ -56,10 +74,10 @@ If you are an AI agent continuing work in this repository:
 
 1. Read `docs/ai-handoff.md` first, then this file, then `docs/build-contract.md`.
 2. The authoritative boot path is currently `kernel/src/main_simple.rs`.
-3. ARM64 and x86-64 boot verification both pass in QEMU.
+3. ARM64 and x86-64 have historical QEMU boot claims; rerun both against current HEAD before treating them as verified.
 4. Windows PowerShell scripts in `tools/` are the canonical build entrypoints on this machine.
 5. `x86_64` runtime uses `build/x86-64/disk.img`, not `kernel.bin` directly.
-6. Phase 3 should start from `hal/` scaffolding, not from rewriting the boot path again.
+6. Phase 3 should stabilize and test the active path before expanding HAL scope or rewriting the boot path.
 7. If you change ownership or authoritative paths, update this file in the same commit.
 
 ## Daily Update (2026-06-11)

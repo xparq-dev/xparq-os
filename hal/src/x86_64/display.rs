@@ -60,8 +60,15 @@ enum X86DisplayInner {
     Text(VgaTextDisplay),
 }
 
-// Include the VGA font data
-const VGA_FONT: &[u8; 4096] = include_bytes!("vga-font.bin");
+const GLYPH_WIDTH: usize = 8;
+const GLYPH_HEIGHT: usize = 16;
+const GLYPH_BYTES: usize = GLYPH_WIDTH * GLYPH_HEIGHT;
+const ROBOTO_MONO_ALPHA: &[u8; 32768] = include_bytes!("roboto-mono-8x16-alpha.bin");
+
+#[inline(always)]
+fn glyph_coverage(character: u8, row: usize, column: usize) -> u8 {
+    ROBOTO_MONO_ALPHA[character as usize * GLYPH_BYTES + row * GLYPH_WIDTH + column]
+}
 
 /// VGA Text Buffer Display Driver (fallback)
 pub struct VgaTextDisplay {
@@ -129,6 +136,11 @@ impl X86Display {
                 inner: X86DisplayInner::Text(VgaTextDisplay::new())
             }
         }
+    }
+
+    /// True when the bootloader supplied a usable linear framebuffer mode.
+    pub fn is_framebuffer(&self) -> bool {
+        matches!(self.inner, X86DisplayInner::Vbe { .. })
     }
 
     /// Create pixel value (RGBA → BGRX for VBE)
@@ -225,21 +237,21 @@ impl X86Display {
     pub fn draw_char(&mut self, x: u32, y: u32, c: u8, fg: u32, bg: u32) {
         match &mut self.inner {
             X86DisplayInner::Vbe { framebuffer, double_buffer, width, height, pitch, .. } => {
-                let glyph_offset = (c as usize) * 16;
-                let glyph = &VGA_FONT[glyph_offset..glyph_offset + 16];
-                
                 let target = double_buffer.unwrap_or(*framebuffer);
 
                 for row in 0..16u32 {
                     for col in 0..8u32 {
-                        let bit = (glyph[row as usize] >> (7 - col)) & 1;
+                        let coverage = glyph_coverage(c, row as usize, col as usize) as u32;
                         let px = x + col;
                         let py = y + row;
                         
                         if px < *width && py < *height {
                             let offset = (py * *pitch / 4 + px) as usize;
                             unsafe {
-                                write_volatile((target as *mut u32).add(offset), if bit != 0 { fg } else { bg });
+                                write_volatile(
+                                    (target as *mut u32).add(offset),
+                                    X86Display::alpha_blend(bg, fg, coverage),
+                                );
                             }
                         }
                     }
@@ -386,19 +398,19 @@ impl fmt::Write for X86Display {
                             }
                         },
                         _ => {
-                            let glyph_offset = (byte as usize) * 16;
-                            let glyph = &VGA_FONT[glyph_offset..glyph_offset + 16];
-                            
                             for row in 0..16u32 {
                                 for col in 0..8u32 {
-                                    let bit = (glyph[row as usize] >> (7 - col)) & 1;
+                                    let coverage = glyph_coverage(byte, row as usize, col as usize) as u32;
                                     let px = *cursor_x + col;
                                     let py = *cursor_y + row;
                                     
                                     if px < *width && py < *height {
                                         let offset = (py * *pitch / 4 + px) as usize;
                                         unsafe {
-                                            write_volatile((*framebuffer as *mut u32).add(offset), if bit != 0 { fg } else { bg });
+                                            write_volatile(
+                                                (*framebuffer as *mut u32).add(offset),
+                                                X86Display::alpha_blend(bg, fg, coverage),
+                                            );
                                         }
                                     }
                                 }

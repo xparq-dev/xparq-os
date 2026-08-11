@@ -15,6 +15,7 @@ This repository is currently in a foundation/prototype stage. The current source
 - Build artifact contract: `docs/build-contract.md`
 - Execution and structure plan: `docs/project-structure-plan.md`
 - Current status ledger: `docs/implementation-status.md`
+- Stakeholder delivery plan: `docs/stakeholder-plan-2026-08.md`
 - AI handoff note: `docs/ai-handoff.md`
 
 If you are an AI agent taking over this repository, read `docs/ai-handoff.md` first. It is the shortest path to the current truth and links to the detailed status docs.
@@ -86,6 +87,15 @@ Prototype raw-boot helpers (non-canonical for kernel build contract) remain in `
 ```bash
 powershell -ExecutionPolicy Bypass -File .\tools\build-x86_64.ps1
 ```
+
+To build the canonical image and open it in a visible QEMU window:
+
+```powershell
+.\start.ps1
+```
+
+Use `.\start.ps1 -NoBuild` to reuse the current validated image, or
+`.\start.ps1 -Gdb` to start paused with a GDB server on port 1234.
 
 #### ARM64 (PowerShell)
 

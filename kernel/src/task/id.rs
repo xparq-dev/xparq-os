@@ -2,6 +2,7 @@
 // Strong type for Task IDs to avoid confusing naked usizes
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
 pub struct TaskId(pub usize);
 
 impl TaskId {

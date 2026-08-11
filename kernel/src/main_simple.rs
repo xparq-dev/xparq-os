@@ -162,32 +162,18 @@ pub fn timer_interrupt_handler() {
         }
     }
 
-    let current_id_opt = crate::cpu::CPUS[cpu_id].lock().current_task;
-
-    if let Some(current_id) = current_id_opt {
-        let ptr = &mut manager.pool.get_task_mut(current_id).unwrap().stack_ptr as *mut u64;
-        let next_sp = manager.schedule_next_for_cpu(cpu_id);
-
+    if crate::syscall::dispatcher::SYSCALL_SLEEP_PARKED
+        .load(core::sync::atomic::Ordering::Acquire)
+    {
         drop(manager);
-
-        unsafe {
-            if *ptr != next_sp {
-                unsafe { 
-                    uart_puts(b"    -> [timer_irq] switching to next_sp: "); 
-                    crate::hal::x86_64::idt::df_print_hex(next_sp);
-                    let rip_to_jump = *( (next_sp + 56) as *const u64 );
-                    uart_puts(b"    -> [timer_irq] target RIP: ");
-                    crate::hal::x86_64::idt::df_print_hex(rip_to_jump);
-                }
-                crate::task::switch::switch_context(ptr, next_sp);
-                unsafe { uart_puts(b"    -> [timer_irq] returned from switch\n"); }
-            } else {
-                unsafe { uart_puts(b"    -> [timer_irq] no switch needed\n"); }
-            }
-        }
-    } else {
-        drop(manager);
+        return;
     }
+
+    // The existing context switcher consumes a kernel-task frame, while user
+    // tasks and in-flight syscalls require a privilege-transition frame. Keep
+    // timer accounting and sleep wakeups, but schedule cooperatively until a
+    // frame-compatible preemption path is implemented.
+    drop(manager);
 }
 
 #[no_mangle]
@@ -235,6 +221,7 @@ fn dbg_serial(msg: &[u8]) {
 
 // ─── Task Entry Points ─────────────────────────────────────────────────
 
+#[cfg(feature = "preemptive-gui-worker")]
 pub fn gui_task_entry() {
     unsafe { uart_puts(b"[GUI] gui_task_entry started\n"); }
     use hal::display::DisplayDriver;
@@ -320,14 +307,36 @@ pub extern "C" fn kernel_main() -> ! {
             // Register input callbacks so keyboard/mouse IRQs route to kernel's INPUT_MANAGER
             {
                 use hal::input::InputDriver;
-                if let Some(keyboard) = hal::x86_64::PS2_KEYBOARD.lock().as_mut() {
-                    keyboard.set_event_callback(Some(crate::input::kernel_keyboard_callback));
-                }
-                if let Some(mouse) = hal::x86_64::PS2_MOUSE.lock().as_mut() {
-                    mouse.set_event_callback(Some(crate::input::kernel_mouse_callback));
-                }
+                hal::x86_64::PS2_KEYBOARD.lock()
+                    .set_event_callback(Some(crate::input::kernel_keyboard_callback));
+                hal::x86_64::PS2_MOUSE.lock()
+                    .set_event_callback(Some(crate::input::kernel_mouse_callback));
             }
             uart_puts(b"[DEBUG] Input callbacks registered\n");
+
+            // Draw the first desktop frame synchronously. Timer-driven task
+            // switching is intentionally disabled until the context switcher
+            // can preserve privilege-transition frames, so the GUI worker may
+            // not be scheduled before user-space init starts.
+            {
+                let mut display_guard = hal::x86_64::DISPLAY.lock();
+                if let Some(display) = display_guard.as_mut() {
+                    if display.is_framebuffer() {
+                        let mut desktop = crate::desktop::DESKTOP_MANAGER.lock();
+                        desktop.init(display);
+                        desktop.draw(display);
+                        uart_puts(b"XPARQ_GUI:FIRST_FRAME_READY\n");
+                    }
+                }
+            }
+
+            #[cfg(feature = "gate1-test")]
+            {
+                uart_puts(b"XPARQ_TEST:GATE1:INPUT_INJECTION_READY\n");
+                while !hal::x86_64::gate1_input_ready() {
+                    unsafe { core::arch::asm!("hlt") };
+                }
+            }
 
             // Init Networking Stack
             crate::net::NETWORK_MANAGER.lock().init();
@@ -349,12 +358,17 @@ pub extern "C" fn kernel_main() -> ! {
                 .allocate_frames(2).expect("no frame for task1 stack");
             let stack2 = crate::memory::frame::FRAME_ALLOCATOR.lock()
                 .allocate_frames(2).expect("no frame for task2 stack");
+            let syscall_stack = crate::memory::frame::FRAME_ALLOCATOR.lock()
+                .allocate_frames(4).expect("no frame for syscall stack");
+            #[cfg(feature = "preemptive-gui-worker")]
             let stack_gui = crate::memory::frame::FRAME_ALLOCATOR.lock()
                 .allocate_frames(4).expect("no frame for gui stack");
             // Zero the stacks so there is no garbage data
             core::ptr::write_bytes(stack_idle as *mut u8, 0, 8192);
             core::ptr::write_bytes(stack1    as *mut u8, 0, 8192);
             core::ptr::write_bytes(stack2    as *mut u8, 0, 8192);
+            core::ptr::write_bytes(syscall_stack as *mut u8, 0, 16384);
+            #[cfg(feature = "preemptive-gui-worker")]
             core::ptr::write_bytes(stack_gui as *mut u8, 0, 16384);
 
             uart_puts(b"[DEBUG] Spawning Idle Task\n");
@@ -370,20 +384,21 @@ pub extern "C" fn kernel_main() -> ! {
             drop(cpu0);
 
             uart_puts(b"[DEBUG] Spawning User Tasks\n");
-            let _ = manager.spawn_task(task1_entry,     stack1,    8192);
-            let _ = manager.spawn_task(task2_entry,     stack2,    8192);
+            let _ = manager.spawn_task(task1_entry, stack1, 8192);
+            let _ = manager.spawn_task(task2_entry, stack2, 8192);
 
-            // Phase 20: GUI Task Enablement
-            let _ = manager.spawn_task(gui_task_entry,  stack_gui, 16384);
+            // The GUI worker is only safe once the context switcher preserves
+            // Ring 3 privilege-transition frames. Cooperative pumping is the
+            // default active path.
+            #[cfg(feature = "preemptive-gui-worker")]
+            let _ = manager.spawn_task(gui_task_entry, stack_gui, 16384);
 
-            // Register the kernel boot thread as a proper task.
-            // The kernel boot stack was set up by the bootloader; we probe
-            // the current RSP to record a safe kernel_stack_top value.
+            // Register the kernel boot thread as a proper task. Ring 3
+            // syscalls and privilege-transition IRQs need a dedicated stack:
+            // the boot stack sits directly below kernel statics and does not
+            // have enough headroom for framebuffer redraws plus an IRQ frame.
             uart_puts(b"[DEBUG] Setting first task\n");
-            let kernel_stack_top: u64;
-            core::arch::asm!("mov {}, rsp", out(reg) kernel_stack_top, options(nomem, nostack));
-            // Round up to next 4KB boundary to give a generous top
-            let kernel_stack_top = (kernel_stack_top + 4095) & !4095u64;
+            let kernel_stack_top = syscall_stack + 16384;
 
             let kernel_task_id = manager.pool.allocate_task().unwrap();
             let task = manager.pool.get_task_mut(kernel_task_id).unwrap();
@@ -408,6 +423,7 @@ pub extern "C" fn kernel_main() -> ! {
             hal::x86_64::idt::register_irq_handler(0xF1, wake_ipi_handler);
 
             uart_puts(b"[XPARQ OS] Multitasking & SMP Enabled!\n");
+            uart_puts(b"XPARQ_GUI:RUNNING\n");
 
             // Mount FAT32 VFS from Storage
             crate::storage::STORAGE_MANAGER.lock().init();
@@ -448,6 +464,7 @@ pub extern "C" fn kernel_main() -> ! {
             );
 
             if result < 0 {
+                uart_puts(b"XPARQ_TEST:FAIL:INIT_LOAD\n");
                 uart_puts(b"[XPARQ OS] Failed to load init.elf!\n");
                 loop { core::arch::asm!("cli; hlt", options(nomem, nostack)); }
             }
@@ -466,6 +483,7 @@ pub extern "C" fn kernel_main() -> ! {
             let user_rsp = crate::syscall::dispatcher::CPU_LOCAL.user_rsp;
 
             if user_rip == 0 || user_rsp == 0 {
+                uart_puts(b"XPARQ_TEST:FAIL:USER_CONTEXT\n");
                 uart_puts(b"[XPARQ OS] ERROR: user_rip or user_rsp is zero!\n");
                 loop { core::arch::asm!("cli; hlt", options(nomem, nostack)); }
             }
@@ -477,6 +495,7 @@ pub extern "C" fn kernel_main() -> ! {
                 core::arch::asm!("cli; hlt", options(nomem, nostack));
             }
         } else {
+            uart_puts(b"XPARQ_TEST:FAIL:HAL_INIT\n");
             uart_puts(b"[XPARQ OS] HAL init failed!\n");
             loop {
                 core::arch::asm!("cli; hlt", options(nomem, nostack));

@@ -5,10 +5,21 @@ use crate::hal;
 
 use spin::Mutex;
 use crate::task::wait_queue::WaitQueue;
+#[cfg(feature = "gate1-gui-test")]
+use core::sync::atomic::{AtomicBool, Ordering};
 
 pub const MAX_WINDOWS: usize = 4;
 
 pub static DESKTOP_MANAGER: Mutex<DesktopManager> = Mutex::new(DesktopManager::new());
+
+#[cfg(feature = "gate1-gui-test")]
+static GUI_MOUSE_SEEN: AtomicBool = AtomicBool::new(false);
+#[cfg(feature = "gate1-gui-test")]
+static GUI_DRAG_SEEN: AtomicBool = AtomicBool::new(false);
+#[cfg(feature = "gate1-gui-test")]
+static GUI_KEYBOARD_SEEN: AtomicBool = AtomicBool::new(false);
+#[cfg(feature = "gate1-gui-test")]
+static GUI_TERMINAL_REDRAW_PENDING: AtomicBool = AtomicBool::new(false);
 
 #[inline(always)]
 unsafe fn dbg_serial(s: &[u8]) {
@@ -214,6 +225,7 @@ pub struct DesktopManager {
     pub width: u32,
     pub height: u32,
     pub needs_redraw: bool,
+    initialized: bool,
     pub dirty_rects: arrayvec::ArrayVec<Rect, 16>,
 }
 
@@ -230,6 +242,7 @@ impl DesktopManager {
             width: 1024,
             height: 768,
             needs_redraw: true,
+            initialized: false,
             dirty_rects: arrayvec::ArrayVec::new_const(),
         }
     }
@@ -243,6 +256,9 @@ impl DesktopManager {
     }
 
     pub fn init(&mut self, display: &mut X86Display) {
+        if self.initialized {
+            return;
+        }
         let width = display.get_width();
         let height = display.get_height();
         
@@ -305,6 +321,8 @@ impl DesktopManager {
 
         // Initialize draw order so active is on top
         self.draw_order = [2, 3, 1, 0];
+        self.initialized = true;
+        self.needs_redraw = true;
     }
 
     fn bring_to_front(&mut self, window_index: usize) {
@@ -329,6 +347,10 @@ impl DesktopManager {
     pub fn process_event(&mut self, event: InputEvent) {
         match (event.event_kind, event.data) {
             (crate::hal::input::InputEventKind::MouseMove, InputEventData::Mouse { x: dx, y: dy, .. }) => {
+                #[cfg(feature = "gate1-gui-test")]
+                if !GUI_MOUSE_SEEN.swap(true, Ordering::AcqRel) {
+                    unsafe { dbg_serial(b"XPARQ_TEST:GUI_MOUSE_OK\n"); }
+                }
                 let old_mouse_rect = Rect { x: self.mouse_x.saturating_sub(10), y: self.mouse_y.saturating_sub(10), w: 20, h: 20 };
                 self.add_dirty_rect(old_mouse_rect);
                 
@@ -391,6 +413,10 @@ impl DesktopManager {
                     
                     self.drag_last_x = self.mouse_x;
                     self.drag_last_y = self.mouse_y;
+                    #[cfg(feature = "gate1-gui-test")]
+                    if !GUI_DRAG_SEEN.swap(true, Ordering::AcqRel) {
+                        unsafe { dbg_serial(b"XPARQ_TEST:GUI_DRAG_OK\n"); }
+                    }
                 }
             },
             (crate::hal::input::InputEventKind::MouseDown | crate::hal::input::InputEventKind::MouseUp, InputEventData::Mouse { buttons, .. }) => {
@@ -524,6 +550,10 @@ impl DesktopManager {
                             use crate::input::InputDevice;
                             for &b in s.as_bytes() {
                                 crate::input::KEYBOARD_DEVICE.push_event(b);
+                            }
+                            #[cfg(feature = "gate1-gui-test")]
+                            if !GUI_KEYBOARD_SEEN.swap(true, Ordering::AcqRel) {
+                                unsafe { dbg_serial(b"XPARQ_TEST:GUI_KEYBOARD_OK\n"); }
                             }
                             crate::input::KEYBOARD_DEVICE.wait_queue.lock().wake_one();
                         }
@@ -701,6 +731,47 @@ impl DesktopManager {
             win.write_str(s);
             let rect = Rect { x: win.x, y: win.y, w: win.width, h: win.height };
             self.add_dirty_rect(rect);
+            #[cfg(feature = "gate1-gui-test")]
+            if GUI_KEYBOARD_SEEN.load(Ordering::Acquire) {
+                GUI_TERMINAL_REDRAW_PENDING.store(true, Ordering::Release);
+            }
         }
     }
+}
+
+fn pop_input_event_irq_safe() -> Option<InputEvent> {
+    let flags: u64;
+    unsafe {
+        core::arch::asm!("pushfq", "pop {}", out(reg) flags, options(nomem));
+        core::arch::asm!("cli", options(nomem, nostack));
+    }
+    let event = crate::input::INPUT_MANAGER.event_queue.lock().pop();
+    if flags & (1 << 9) != 0 {
+        unsafe { core::arch::asm!("sti", options(nomem, nostack)); }
+    }
+    event
+}
+
+/// Drain pending PS/2 events and render any resulting desktop changes on the
+/// current kernel/syscall thread. This is the active GUI execution model while
+/// privilege-frame-compatible preemption remains unavailable.
+pub fn pump_events_and_redraw() -> usize {
+    let mut processed = 0;
+    while let Some(event) = pop_input_event_irq_safe() {
+        DESKTOP_MANAGER.lock().process_event(event);
+        processed += 1;
+    }
+
+    let mut display_guard = crate::hal::x86_64::DISPLAY.lock();
+    if let Some(display) = display_guard.as_mut() {
+        let mut desktop = DESKTOP_MANAGER.lock();
+        if desktop.needs_redraw || !desktop.dirty_rects.is_empty() {
+            desktop.draw(display);
+            #[cfg(feature = "gate1-gui-test")]
+            if GUI_TERMINAL_REDRAW_PENDING.swap(false, Ordering::AcqRel) {
+                unsafe { dbg_serial(b"XPARQ_TEST:GUI_TERMINAL_REDRAW_OK\n"); }
+            }
+        }
+    }
+    processed
 }

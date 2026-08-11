@@ -111,6 +111,7 @@ pub fn timer_handler() {
     }
 }
 
+
 /// Get current tick count
 pub fn get_ticks() -> u64 {
     *TICKS.lock()

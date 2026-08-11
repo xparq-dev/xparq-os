@@ -22,6 +22,14 @@ const SYS_TCP_SOCKET: u64 = 15;
 const SYS_TCP_LISTEN: u64 = 16;
 const SYS_TCP_ACCEPT: u64 = 17;
 const SYS_TCP_CONNECT: u64 = 18;
+const SYS_GETPID: u64 = 19;
+
+#[repr(C)]
+struct IpcMessage {
+    sender: usize,
+    type_: u32,
+    data: [u8; 32],
+}
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -111,6 +119,76 @@ fn read_char() -> Option<u8> {
 
 fn yield_now() {
     unsafe { syscall0(SYS_YIELD) };
+}
+
+fn sleep_ms(ms: u64) -> i64 {
+    unsafe { syscall1(SYS_SLEEP, ms) }
+}
+
+fn open_file(path: &str) -> i64 {
+    unsafe { syscall2(SYS_OPEN, path.as_ptr() as u64, path.len() as u64) }
+}
+
+fn close_fd(fd: i64) -> i64 {
+    unsafe { syscall1(SYS_CLOSE, fd as u64) }
+}
+
+fn getpid() -> i64 {
+    unsafe { syscall0(SYS_GETPID) }
+}
+
+#[cfg(any(feature = "gate1-test", feature = "gate1-fault-test"))]
+fn gate1_fail(marker: &str) -> ! {
+    print(marker);
+    // Remain in Ring 3 after emitting the failure marker.
+    loop { core::hint::spin_loop(); }
+}
+
+#[cfg(feature = "gate1-test")]
+fn run_gate1_acceptance() -> ! {
+    let write_probe = b"XPARQ_TEST:GATE1:WRITE_OK\n";
+    let written = unsafe { syscall3(SYS_WRITE, 1, write_probe.as_ptr() as u64, write_probe.len() as u64) };
+    if written != write_probe.len() as i64 { gate1_fail("XPARQ_TEST:GATE1_FAIL:WRITE\n"); }
+
+    if sleep_ms(2) != 0 { gate1_fail("XPARQ_TEST:GATE1_FAIL:SLEEP\n"); }
+
+    if open_file("MISSING.TXT") != -2 { gate1_fail("XPARQ_TEST:GATE1_FAIL:OPEN_MISSING\n"); }
+    if unsafe { syscall3(SYS_READ, 15, 0, 0) } != -9 { gate1_fail("XPARQ_TEST:GATE1_FAIL:BAD_FD\n"); }
+    if unsafe { syscall0(0xFFFF) } != -38 { gate1_fail("XPARQ_TEST:GATE1_FAIL:UNKNOWN_SYSCALL\n"); }
+    print("XPARQ_TEST:GATE1:ERRORS_OK\n");
+
+    let fd = open_file("GATE1.TXT");
+    if fd < 3 { gate1_fail("XPARQ_TEST:GATE1_FAIL:OPEN\n"); }
+    let mut file_buf = [0u8; 64];
+    let read = unsafe { syscall3(SYS_READ, fd as u64, file_buf.as_mut_ptr() as u64, file_buf.len() as u64) };
+    let expected = b"XPARQ_GATE1_FILE_OK\n";
+    if read != expected.len() as i64 || &file_buf[..expected.len()] != expected {
+        gate1_fail("XPARQ_TEST:GATE1_FAIL:FILE_CONTENT\n");
+    }
+    if close_fd(fd) != 0 { gate1_fail("XPARQ_TEST:GATE1_FAIL:CLOSE\n"); }
+    if unsafe { syscall3(SYS_READ, fd as u64, file_buf.as_mut_ptr() as u64, 1) } != -9 {
+        gate1_fail("XPARQ_TEST:GATE1_FAIL:CLOSED_FD\n");
+    }
+    print("XPARQ_TEST:GATE1:FILE_OK\n");
+
+    let pid = getpid();
+    if pid < 0 { gate1_fail("XPARQ_TEST:GATE1_FAIL:GETPID\n"); }
+    let mut payload = [0u8; 32];
+    payload[..12].copy_from_slice(b"gate1-ipc-ok");
+    if unsafe { syscall3(SYS_IPC_SEND, pid as u64, 0x471, payload.as_ptr() as u64) } != 0 {
+        gate1_fail("XPARQ_TEST:GATE1_FAIL:IPC_SEND\n");
+    }
+    let mut message = IpcMessage { sender: 0, type_: 0, data: [0; 32] };
+    if unsafe { syscall2(SYS_IPC_RECV, 0x471, &mut message as *mut IpcMessage as u64) } != 0 {
+        gate1_fail("XPARQ_TEST:GATE1_FAIL:IPC_RECV\n");
+    }
+    if message.sender != pid as usize || message.type_ != 0x471 || message.data != payload {
+        gate1_fail("XPARQ_TEST:GATE1_FAIL:IPC_CONTENT\n");
+    }
+    print("XPARQ_TEST:GATE1:IPC_OK\n");
+    print("XPARQ_TEST:GATE1_PASS\n");
+    unsafe { syscall0(SYS_EXIT) };
+    gate1_fail("XPARQ_TEST:GATE1_FAIL:EXIT_RETURNED\n");
 }
 
 fn print_u64(v: u64) {
@@ -340,8 +418,35 @@ fn cmd_tcp(args: &str) {
     }
 }
 
+#[cfg(all(feature = "gate1-test", not(any(feature = "gate1-input-test", feature = "gate1-fault-test"))))]
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
+    run_gate1_acceptance();
+}
+
+#[cfg(feature = "gate1-fault-test")]
+#[no_mangle]
+pub extern "C" fn _start() -> ! {
+    print("XPARQ_TEST:FAULT:ARMED\n");
+    unsafe {
+        core::ptr::read_volatile(0x0000_7000_0000_0000usize as *const u64);
+    }
+    gate1_fail("XPARQ_TEST:GATE1_FAIL:PAGE_FAULT_RETURNED\n");
+}
+
+#[cfg(all(feature = "gate1-input-test", not(feature = "gate1-fault-test")))]
+#[no_mangle]
+pub extern "C" fn _start() -> ! {
+    print("XPARQ_TEST:INIT_READY\n");
+    // Input verification is complete before this test init enters Ring 3.
+    // Remain there without using the privileged HLT instruction.
+    loop { core::hint::spin_loop(); }
+}
+
+#[cfg(not(any(feature = "gate1-test", feature = "gate1-input-test", feature = "gate1-fault-test")))]
+#[no_mangle]
+pub extern "C" fn _start() -> ! {
+    print("XPARQ_TEST:INIT_READY\n");
     print("\x1B[2J\x1B[H"); // Clear screen
     print("===========================================\n");
     print("  XPARQ OS User Space Shell (Phase 17)    \n");

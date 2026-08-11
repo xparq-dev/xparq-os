@@ -5,6 +5,12 @@ edition = "2021"
 
 [dependencies]
 
+[features]
+default = []
+gate1-test = []
+gate1-input-test = []
+gate1-fault-test = []
+
 [profile.dev]
 panic = "abort"
 

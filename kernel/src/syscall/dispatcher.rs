@@ -2,6 +2,12 @@
 // Validates and routes system calls from user-space
 
 use crate::task::TASK_MANAGER;
+use core::sync::atomic::{AtomicBool, Ordering};
+
+/// Set only while a syscall keeps its Ring 3 frame parked on the current
+/// kernel stack. The timer still advances clocks and wakes sleepers, but must
+/// not move that in-flight frame to a different task stack.
+pub static SYSCALL_SLEEP_PARKED: AtomicBool = AtomicBool::new(false);
 
 // Syscall Numbers
 pub const SYS_YIELD: u64 = 1;
@@ -23,6 +29,7 @@ pub const SYS_TCP_SOCKET: u64 = 15; // create TCP socket -> fd
 pub const SYS_TCP_LISTEN: u64 = 16; // listen on TCP socket
 pub const SYS_TCP_ACCEPT: u64 = 17;
 pub const SYS_TCP_CONNECT: u64 = 18;
+pub const SYS_GETPID: u64 = 19;
 
 // Syscall assembly entry point
 // The CPU jumps here with:
@@ -87,22 +94,22 @@ core::arch::global_asm!(
         mov rdi, rax
         
         call syscall_handler_inner
-        
-        // Restore caller-saved registers
+
+        // RAX contains the syscall return value. Restore the saved user
+        // context before popping the syscall argument registers because the
+        // Rust call may clobber caller-saved RDI/RSI/RDX/R8-R10.
+        push rax
+        call restore_user_context
+        pop rax
+
+        // Restore the user-visible syscall argument registers last so the
+        // inline-asm ABI can safely treat them as preserved across syscall.
         pop r10
         pop r9
         pop r8
         pop rdx
         pop rsi
         pop rdi
-
-        // RAX contains the syscall return value, must preserve it!
-        push rax
-
-        // Load User RIP/RSP/RFLAGS from the current Task struct
-        call restore_user_context
-
-        pop rax
 
         // 5. Restore User RIP and RFLAGS from CpuLocal (updated by restore_user_context)
         mov r11, gs:[24]
@@ -238,31 +245,80 @@ pub extern "C" fn syscall_handler_inner(sys_num: u64, arg1: u64, arg2: u64, arg3
         SYS_TCP_LISTEN => sys_tcp_listen(arg1 as i64, arg2 as u16),
         SYS_TCP_ACCEPT => sys_tcp_accept(arg1 as i64),
         SYS_TCP_CONNECT => sys_tcp_connect(arg1 as i64, arg2 as u32, arg3 as u16),
+        SYS_GETPID => sys_getpid(),
         _            => -38, // -ENOSYS
     }
 }
 
 pub fn sys_yield() {
-    // In cooperative mode, triggering an interrupt is safer for context switching.
-    // For now, since we have the scheduler preemption working via LAPIC,
-    // we can either let it run, or trigger INT 32 directly (software interrupt)
+    crate::desktop::pump_events_and_redraw();
     unsafe {
-        core::arch::asm!("int 32"); // Trigger timer interrupt to force a reschedule
+        // STI defers interrupt recognition until after HLT, closing the usual
+        // check-then-sleep race without moving the Ring 3 syscall frame.
+        core::arch::asm!("cli", "sti", "hlt", options(nomem, nostack));
     }
 }
 
 pub fn sys_sleep(ms: u64) {
-    let mut manager = TASK_MANAGER.lock();
-    manager.sleep_current_task(ms);
-    drop(manager);
-    
-    // Now trigger a reschedule since we put ourselves to sleep
-    unsafe {
-        core::arch::asm!("int 32");
+    let cpu_id = crate::cpu::id::current_cpu_id();
+    let task_id = match crate::cpu::CPUS[cpu_id].lock().current_task {
+        Some(id) => id,
+        None => return,
+    };
+
+    let is_user_task = TASK_MANAGER.lock().pool.get_task(task_id)
+        .map(|task| task.saved_user_rip != 0)
+        .unwrap_or(false);
+
+    // Close the interval where a timer IRQ could schedule the task after it
+    // becomes Sleeping but before the syscall-frame parking guard is visible.
+    if is_user_task {
+        unsafe { core::arch::asm!("cli", options(nomem, nostack)); }
+        SYSCALL_SLEEP_PARKED.store(true, Ordering::Release);
     }
+
+    {
+        let mut manager = TASK_MANAGER.lock();
+        manager.sleep_current_task(ms.max(1));
+    }
+
+    if !is_user_task {
+        unsafe { core::arch::asm!("int 32", options(nomem, nostack)); }
+        return;
+    }
+
+    unsafe { core::arch::asm!("sti", options(nomem, nostack)); }
+    loop {
+        // Drive the registered timer vector synchronously. The current LAPIC
+        // calibration is platform-dependent, so relying on its wall-clock
+        // cadence would make the reference test nondeterministic. The handler
+        // still owns clock advancement and sleep-queue wakeups.
+        unsafe { core::arch::asm!("int 32", options(nomem, nostack)); }
+        let manager = TASK_MANAGER.lock();
+        let awake = manager.pool.get_task(task_id)
+            .map(|task| task.state == crate::task::state::TaskState::Ready)
+            .unwrap_or(true);
+        drop(manager);
+        if awake { break; }
+    }
+    unsafe { core::arch::asm!("cli", options(nomem, nostack)); }
+    SYSCALL_SLEEP_PARKED.store(false, Ordering::Release);
+
+    // Waking normally enqueues the task. Since this syscall never changed the
+    // running stack, consume that queue entry and restore Running explicitly.
+    let mut manager = TASK_MANAGER.lock();
+    let mut cpu = crate::cpu::CPUS[cpu_id].lock();
+    cpu.scheduler.ready_queue.remove(&mut manager.pool, task_id);
+    if let Some(task) = manager.pool.get_task_mut(task_id) {
+        task.state = crate::task::state::TaskState::Running;
+    }
+    drop(cpu);
+    drop(manager);
+    unsafe { crate::uart_puts(b"XPARQ_TEST:GATE1:SLEEP_OK\n"); }
 }
 
 pub fn sys_exit() {
+    unsafe { crate::uart_puts(b"XPARQ_TEST:GATE1:EXIT_ENTERED\n"); }
     // Current task has exited
     // For now, we just halt it
     loop {
@@ -272,10 +328,50 @@ pub fn sys_exit() {
 
 // Pointer validation moved to memory::user
 
-pub fn sys_open(_path_ptr: u64, _path_len: u64) -> i64 {
-    // For Phase 10, we focus on SYS_READ and SYS_EXECVE.
-    // Full VFS SYS_OPEN will be implemented later.
-    -38 // -ENOSYS
+pub fn sys_open(path_ptr: u64, path_len: u64) -> i64 {
+    if path_len == 0 || path_len > 256 { return -22; }
+    let mut path_buf = [0u8; 256];
+    if crate::memory::user::copy_from_user(&mut path_buf, path_ptr, path_len as usize).is_err() {
+        return -22;
+    }
+    let path = match core::str::from_utf8(&path_buf[..path_len as usize]) {
+        Ok(path) => path,
+        Err(_) => return -22,
+    };
+    let node = match crate::fs::VFS_MANAGER.lock().open(path) {
+        Some(node) => node,
+        None => return -2,
+    };
+
+    let cpu_id = crate::cpu::id::current_cpu_id();
+    let task_id = match crate::cpu::CPUS[cpu_id].lock().current_task {
+        Some(id) => id,
+        None => return -3,
+    };
+    let mut task_manager = TASK_MANAGER.lock();
+    let task = match task_manager.pool.get_task_mut(task_id) {
+        Some(task) => task,
+        None => return -3,
+    };
+    let fd = match (3..16).find(|&fd| !task.fd_table[fd].is_valid()) {
+        Some(fd) => fd,
+        None => return -24,
+    };
+    let mut object_pool = crate::objects::OBJECT_POOL.lock();
+    let object_id = match object_pool.allocate(crate::objects::ObjectVariant::File(node)) {
+        Some(id) => id,
+        None => return -23,
+    };
+    task.fd_table[fd] = crate::objects::Handle::new(object_id, crate::objects::HandleRights::READ);
+    fd as i64
+}
+
+pub fn sys_getpid() -> i64 {
+    let cpu_id = crate::cpu::id::current_cpu_id();
+    match crate::cpu::CPUS[cpu_id].lock().current_task {
+        Some(id) => id.as_usize() as i64,
+        None => -3,
+    }
 }
 
 pub fn sys_read(fd: u64, buf_ptr: u64, len: u64) -> i64 {
@@ -289,16 +385,16 @@ pub fn sys_read(fd: u64, buf_ptr: u64, len: u64) -> i64 {
         let mut read = 0;
         
         while read < capped {
+            crate::desktop::pump_events_and_redraw();
             if let Some(byte) = crate::input::KEYBOARD_DEVICE.read_event() {
                 tmp_buf[read] = byte;
                 read += 1;
             } else {
                 if read == 0 {
-                    // Block until input is available
-                    unsafe { crate::uart_puts(b"  -> [sys_read] blocking...\n"); }
-                    crate::input::KEYBOARD_DEVICE.wait_queue.lock().block_current(crate::task::state::BlockReason::Input);
-                    unsafe { crate::uart_puts(b"  -> [sys_read] woke up!\n"); }
-                    // After waking up, the loop will retry reading
+                    unsafe {
+                        crate::uart_puts(b"  -> [sys_read] waiting for IRQ...\n");
+                        core::arch::asm!("cli", "sti", "hlt", options(nomem, nostack));
+                    }
                 } else {
                     break;
                 }

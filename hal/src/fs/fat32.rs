@@ -214,3 +214,35 @@ pub struct Fat32File {
     pub start_cluster: u32,
     pub size: u32,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_bpb() -> Fat32Bpb {
+        Fat32Bpb {
+            jmp_boot: [0; 3], oem_name: [0; 8], bytes_per_sector: 512,
+            sectors_per_cluster: 8, reserved_sectors: 32, num_fats: 2,
+            root_entries: 0, total_sectors_16: 0, media: 0xF8,
+            sectors_per_fat_16: 0, sectors_per_track: 0, num_heads: 0,
+            hidden_sectors: 2048, total_sectors_32: 65536,
+            sectors_per_fat_32: 64, flags: 0, fs_version: 0, root_cluster: 2,
+            fs_info_sector: 1, backup_boot_sector: 6, reserved: [0; 12],
+            drive_number: 0x80, reserved2: 0, boot_signature: 0x29,
+            volume_id: 0x12345678, volume_label: [b' '; 11],
+            fs_type: *b"FAT32   ", boot_code: [0; 420], boot_signature2: 0xAA55,
+        }
+    }
+
+    #[test]
+    fn calculates_partition_relative_fat_and_cluster_lbas() {
+        let partition = MbrPartitionEntry {
+            bootable: 0, start_chs: [0; 3], partition_type: 0x0C,
+            end_chs: [0; 3], start_lba: 2048, sector_count: 65536,
+        };
+        let fs = Fat32Fs::new(test_bpb(), partition);
+        assert_eq!(fs.cluster_to_lba(2), 2208);
+        assert_eq!(fs.cluster_to_lba(3), 2216);
+        assert_eq!(fs.first_sector_of_cluster(1), 0);
+    }
+}

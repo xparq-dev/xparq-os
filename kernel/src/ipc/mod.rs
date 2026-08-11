@@ -8,6 +8,7 @@ use crate::input::CircularBuffer;
 use spin::Mutex;
 
 #[derive(Debug, Clone, Copy)]
+#[repr(C)]
 pub struct Message {
     pub sender: TaskId,
     pub type_: u32,

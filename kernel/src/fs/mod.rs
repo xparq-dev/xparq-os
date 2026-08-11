@@ -56,6 +56,7 @@ impl VfsManager {
         };
 
         use vfs::FileSystem;
-        fs.read_file(node.internal_id, 0, buf)
+        let capped = core::cmp::min(node.size as usize, buf.len());
+        fs.read_file(node.internal_id, 0, &mut buf[..capped])
     }
 }

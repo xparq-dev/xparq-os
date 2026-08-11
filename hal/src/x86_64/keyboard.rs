@@ -44,6 +44,18 @@ impl Ps2Keyboard {
         }
     }
 
+    /// Drain stale controller output without blocking when the buffer is empty.
+    fn flush_output(&self) {
+        unsafe {
+            for _ in 0..32 {
+                if (crate::hal_inb(PS2_STATUS_PORT) & 0x01) == 0 {
+                    break;
+                }
+                let _ = crate::hal_inb(PS2_DATA_PORT);
+            }
+        }
+    }
+
     /// Write a byte to PS/2 data port
     fn write_data(&self, data: u8) {
         unsafe {
@@ -71,10 +83,10 @@ impl Ps2Keyboard {
     }
 
     /// Interrupt handler for keyboard
-    pub fn irq_handler(&mut self) {
+    pub fn irq_handler(&mut self) -> bool {
         unsafe {
             if (crate::hal_inb(PS2_STATUS_PORT) & 0x01) == 0 {
-                return;
+                return false;
             }
         }
 
@@ -123,6 +135,7 @@ impl Ps2Keyboard {
         if let Some(cb) = self.callback {
             cb(&event);
         }
+        true
     }
 }
 
@@ -132,22 +145,40 @@ impl InputDriver for Ps2Keyboard {
     }
 
     fn init(&mut self) -> Result<(), InputError> {
-        // Initialize PS/2 controller
+        // Quiesce both ports before testing or changing the controller config.
         self.write_command(0xAD);
         self.write_command(0xA7);
-        let _ = self.read_data();
-        self.write_command(0x20);
-        let mut config = self.read_data();
-        config |= 0x01; // Enable first port IRQ
-        config &= !0x20;
-        config |= 0x40; // Enable first port translation
-        self.write_command(0x60);
-        self.write_data(config);
+        self.flush_output();
+
+        // The self-test may reset the controller config, so it must precede it.
         self.write_command(0xAA);
         if self.read_data() != 0x55 { return Err(InputError::HardwareFailure); }
+
+        self.write_command(0xAB); // Test first PS/2 port.
+        if self.read_data() != 0x00 { return Err(InputError::HardwareFailure); }
+
+        self.write_command(0x20);
+        let mut config = self.read_data();
+        config &= !0x03; // Keep IRQs masked until the device handshake completes.
+        config &= !0x10; // Enable the first-port clock.
+        config |= 0x40; // Translate set 2 scancodes to set 1.
+        self.write_command(0x60);
+        self.write_data(config);
+
         self.write_command(0xAE);
         self.write_data(0xFF);
-        let _ = self.read_data();
+        if self.read_data() != 0xFA { return Err(InputError::HardwareFailure); }
+        if self.read_data() != 0xAA { return Err(InputError::HardwareFailure); }
+        self.write_data(0xF4); // Enable scanning after reset.
+        if self.read_data() != 0xFA { return Err(InputError::HardwareFailure); }
+
+        // Unmask IRQ1 only after all keyboard responses have been consumed.
+        self.write_command(0x20);
+        let mut config = self.read_data();
+        config |= 0x01;
+        config &= !0x10;
+        self.write_command(0x60);
+        self.write_data(config);
 
         self.initialized = true;
         Ok(())

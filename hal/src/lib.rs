@@ -631,8 +631,10 @@ pub mod utils {
     }
 }
 
+#[cfg(not(test))]
 use core::panic::PanicInfo;
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     let mut msg = arrayvec::ArrayString::<256>::new();

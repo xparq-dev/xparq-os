@@ -33,6 +33,9 @@ xparq-hal = { path = "../hal", default-features = false, features = ["kernel"] }
 default = []
 arm64 = ["aarch64-cpu"]
 x86_64 = ["dep:x86_64"]
+gate1-test = []
+gate1-gui-test = []
+preemptive-gui-worker = []
 
 [profile.dev]
 panic = "abort"

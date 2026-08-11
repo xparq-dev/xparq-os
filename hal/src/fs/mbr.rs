@@ -60,3 +60,35 @@ pub enum MbrPartitionType {
     Fat32 = 0x0B,
     Fat32Lba = 0x0C,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_valid_fat32_partition() {
+        let mut sector = [0u8; 512];
+        sector[450] = MbrPartitionType::Fat32Lba as u8;
+        sector[454..458].copy_from_slice(&2048u32.to_le_bytes());
+        sector[458..462].copy_from_slice(&69632u32.to_le_bytes());
+        sector[510] = 0x55;
+        sector[511] = 0xAA;
+        let table = MbrPartitionTable::from_bytes(&sector).expect("valid MBR");
+        let partition = table.get_partition(0).expect("partition 0");
+        let start_lba = partition.start_lba;
+        let sector_count = partition.sector_count;
+        assert_eq!(partition.partition_type, 0x0C);
+        assert_eq!(start_lba, 2048);
+        assert_eq!(sector_count, 69632);
+    }
+
+    #[test]
+    fn rejects_bad_signature_and_empty_partition() {
+        let mut sector = [0u8; 512];
+        assert!(MbrPartitionTable::from_bytes(&sector).is_none());
+        sector[510] = 0x55;
+        sector[511] = 0xAA;
+        let table = MbrPartitionTable::from_bytes(&sector).expect("valid empty MBR");
+        assert!(table.get_partition(0).is_none());
+    }
+}

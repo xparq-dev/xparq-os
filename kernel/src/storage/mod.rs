@@ -30,19 +30,31 @@ impl StorageManager {
     }
 
     pub fn init(&mut self) {
-        // Try to scan for partitions on device 2 (ATA Primary Slave)
-        let device_id = 2;
-        self.scan_partitions(device_id);
+        // The canonical x86-64 image is attached as the primary ATA master.
+        self.volumes.clear();
+        self.scan_partitions(1);
     }
 
     fn scan_partitions(&mut self, device_id: u32) {
-        // For Phase 10, we know device 2 is a raw FAT32 image
-        let _ = self.volumes.try_push(Volume {
-            device_id,
-            start_lba: 0,
-            sector_count: 34 * 1024 * 1024 / 512,
-            fs_type: 0x0B, // FAT32
-        });
+        let mut sector = [0u8; 512];
+        let mut storage_guard = hal::x86_64::STORAGE.lock();
+        let Some(storage) = storage_guard.as_mut() else { return; };
+        if storage.read(device_id, 0, &mut sector).is_err() { return; }
+        if sector[510] != 0x55 || sector[511] != 0xAA { return; }
+
+        for index in 0..4 {
+            let offset = 446 + index * 16;
+            let fs_type = sector[offset + 4];
+            if fs_type != 0x0B && fs_type != 0x0C { continue; }
+            let start_lba = u32::from_le_bytes([
+                sector[offset + 8], sector[offset + 9], sector[offset + 10], sector[offset + 11],
+            ]) as u64;
+            let sector_count = u32::from_le_bytes([
+                sector[offset + 12], sector[offset + 13], sector[offset + 14], sector[offset + 15],
+            ]) as u64;
+            if start_lba == 0 || sector_count == 0 { continue; }
+            let _ = self.volumes.try_push(Volume { device_id, start_lba, sector_count, fs_type });
+        }
     }
 
     pub fn read_volume(&self, vol_idx: usize, lba_offset: u64, buffer: &mut [u8]) -> Result<(), ()> {

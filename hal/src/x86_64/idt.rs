@@ -67,11 +67,11 @@ static mut IDT: [IdtEntry; 256] = [IdtEntry::empty(); 256];
 pub type IrqHandler = fn();
 
 /// Registered IRQ handlers (vector -> handler)
-pub static mut IRQ_HANDLERS: spin::Mutex<[Option<IrqHandler>; 256]> = spin::Mutex::new([None; 256]);
+pub static IRQ_HANDLERS: spin::Mutex<[Option<IrqHandler>; 256]> = spin::Mutex::new([None; 256]);
 
 /// Register an interrupt handler for a specific vector
 pub fn register_irq_handler(vector: u8, handler: IrqHandler) {
-    let mut handlers = unsafe { IRQ_HANDLERS.lock() };
+    let mut handlers = IRQ_HANDLERS.lock();
     handlers[vector as usize] = Some(handler);
 }
 
@@ -86,7 +86,7 @@ pub extern "C" fn irq_dispatch(vector: u8) {
     }
     
     let handler_opt = {
-        let handlers = unsafe { IRQ_HANDLERS.lock() };
+        let handlers = IRQ_HANDLERS.lock();
         handlers[vector as usize]
     };
     
@@ -271,7 +271,37 @@ exception_handler_with_name!(invalid_tss, b'T', b'S');
 exception_handler_with_name!(segment_not_present, b'N', b'P');
 exception_handler_with_name!(stack_segment_fault, b'S', b'S');
 exception_handler_with_name!(general_protection_fault, b'G', b'P');
-exception_handler_with_name!(page_fault, b'P', b'F');
+#[no_mangle]
+pub extern "C" fn page_fault_diagnostic(error_code: u64, fault_address: u64) -> ! {
+    fault_serial(b"XPARQ_TEST:FAULT:PAGE_FAULT\n");
+    fault_serial(b"XPARQ_FAULT:CR2=");
+    df_print_hex(fault_address);
+    fault_serial(b"XPARQ_FAULT:ERROR=");
+    df_print_hex(error_code);
+    loop { unsafe { core::arch::asm!("cli; hlt", options(nomem, nostack)); } }
+}
+
+fn fault_serial(message: &[u8]) {
+    for &byte in message {
+        unsafe {
+            core::arch::asm!("out dx, al", in("dx") 0x03F8u16, in("al") byte,
+                options(nomem, nostack, preserves_flags));
+        }
+    }
+}
+
+#[unsafe(naked)]
+pub unsafe extern "C" fn page_fault() {
+    core::arch::naked_asm!(
+        "cli",
+        "push rax", "push rbx", "push rcx", "push rdx", "push rsi",
+        "push rdi", "push rbp", "push r8", "push r9", "push r10",
+        "push r11", "push r12", "push r13", "push r14", "push r15",
+        "mov rdi, [rsp + 120]",
+        "mov rsi, cr2",
+        "call page_fault_diagnostic",
+    );
+}
 
 // Define handlers for IRQs (vectors 32-47)
 irq_handler!(irq0, 32);

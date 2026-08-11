@@ -132,6 +132,41 @@ powershell -ExecutionPolicy Bypass -File .\tools\build-x86_64.ps1 --no-test
 powershell -ExecutionPolicy Bypass -File .\tools\build-arm64.ps1 --no-test
 ```
 
+The x86-64 command builds one partitioned `disk.img` and passes runtime verification only after serial output reaches `XPARQ_TEST:INIT_READY`. Add `--repeat 10` for the Gate 0 stability check. `--no-test` validates compilation and image layout without claiming runtime success. Evidence is written to `build/x86-64/build-manifest.json` and `boot.log`.
+
+To run the Gate 1 kernel acceptance scenario:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\build-x86_64.ps1 --scenario gate1 --repeat 10
+```
+
+To inject repeated keyboard and mouse input through QMP and require the guest drivers to process it before `init` starts:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\build-x86_64.ps1 --scenario gate1-input --repeat 10
+```
+
+To verify the cooperative desktop end to end (cursor movement, terminal drag,
+Ring 3 keyboard input, command output, redraw, and before/after screenshots):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\build-x86_64.ps1 --scenario gate1-gui --repeat 10
+```
+
+For a visible interactive session, run `.\start.ps1`. Normal mode briefly starts
+paused only while the script connects QMP, then verifies `query-status` is
+`running`; only `.\start.ps1 -Gdb` intentionally remains paused.
+
+This scenario adds a deterministic `GATE1.TXT` fixture, runs host-side MBR/FAT32 parser tests, and verifies user-mode write, sleep-call return, error codes, file open/read/close, self-IPC, and exit markers.
+
+Run the isolated user page-fault diagnostic with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\build-x86_64.ps1 --scenario gate1-fault
+```
+
+The scenario passes only after the serial log contains the armed marker, page-fault marker, fault address (`CR2`), and hardware error code.
+
 ### Manual Build Process
 
 #### ARM64 Target
